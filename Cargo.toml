@@ -1,0 +1,81 @@
+[package]
+name = "digestly"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.86"
+description = "Digestly — self-hosted RSS/YouTube/Reddit reader + AI digest"
+license = "MIT"
+
+[[bin]]
+name = "digestly"
+path = "src/main.rs"
+
+# Pinned versions (Global Rule #4). Later phases add feature crates; keep these stable.
+[dependencies]
+axum = "0.7.9"
+axum-extra = { version = "0.9.6", features = ["cookie", "cookie-signed"] }
+tokio = { version = "1.40.0", features = ["full"] }
+tower = "0.5.1"
+tower-http = { version = "0.6.2", features = ["fs", "trace", "cors", "compression-full"] }
+
+# Auth (Phase 2): argon2 password hashing, signed-cookie key derivation.
+argon2 = "0.5.3"
+sha2 = "0.10.8"
+hex = "0.4.3"
+time = "0.3.36"
+
+# AI (Phase 5): authenticated encryption for provider API keys at rest (SECRET_KEY-derived key).
+# Pure-Rust AEAD (no OpenSSL in the slim runtime). Pinned (Global Rule #4).
+chacha20poly1305 = "0.10.1"
+
+# Passkeys / WebAuthn (Stretch S1): the reference Rust WebAuthn Relying Party. Enforces
+# sign-count regression (cloned-authenticator detection) internally; we mirror it explicitly.
+# Pinned (Global Rule #4). Reg/auth ceremony state is held in-process, so no serde feature is
+# needed; only the resulting `Passkey` credential is serialized into the `passkeys.public_key` blob.
+# `conditional-ui` enables the discoverable-credential (autofill/Conditional UI) login flow — a
+# crate-designated preview feature, pinned via Cargo.lock like everything else.
+webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
+
+# Global Rule #2: runtime-checked sqlx (NOT the query!/query_as! macros). No live DB at build.
+sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "sqlite", "chrono", "migrate"] }
+
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+
+# Ingestion (Phase 3). rustls to match sqlx's runtime-tokio-rustls (no OpenSSL in the slim
+# runtime image); cookies deliberately off (prompt.md §1). Pinned (Global Rule #4).
+feed-rs = "2.3.1"
+reqwest = { version = "0.12.8", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json", "stream"] }
+ammonia = "4.0.0"
+scraper = "0.21.0"
+url = "2.5.2"
+futures-util = "0.3.31"
+
+# OPML parsing (Phase 7): a proper read-only XML tree — html5ever/scraper mangles OPML's
+# non-void <outline> nesting. Pure-Rust, no extra system deps. Pinned (Global Rule #4).
+roxmltree = "0.20.0"
+
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
+
+chrono = { version = "0.4.38", features = ["serde"] }
+chrono-tz = "0.10.0"
+
+anyhow = "1.0.89"
+thiserror = "1.0.64"
+
+# Load a local `.env` for `cargo run` (no-op under Docker, where env_file injects the real env).
+dotenvy = "0.15.7"
+
+[dev-dependencies]
+tempfile = "3.13.0"
+# S1: a software WebAuthn authenticator so the passkey register → passwordless-login →
+# sign-count-regression flow can be exercised end-to-end, headless (no browser). Pairs with
+# webauthn-rs 0.5. Test-only.
+webauthn-authenticator-rs = { version = "0.5.0", features = ["softpasskey"] }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 1
+strip = true

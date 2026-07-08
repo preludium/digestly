@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# SQLite data (compose mounts ./data -> /data)
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Frontend (web/)
+web/node_modules/
+web/dist/
+web/.vite/
+*.tsbuildinfo
+
+# Node (root, if ever used)
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build artifacts
+/dist/

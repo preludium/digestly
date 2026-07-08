@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Fixture Engineering Blog</title>
+    <link>https://fixtures.example/eng</link>
+    <description>Offline test feed (RSS 2.0)</description>
+    <item>
+      <title>Shipping a Rust service on a Raspberry Pi</title>
+      <link>https://fixtures.example/eng/rust-on-pi</link>
+      <guid>https://fixtures.example/eng/rust-on-pi</guid>
+      <pubDate>Mon, 02 Jun 2025 09:00:00 GMT</pubDate>
+      <description><![CDATA[<p>A walkthrough of a small footprint deploy.</p><script>alert('xss')</script><a href="javascript:evil()">bad</a>]]></description>
+    </item>
+    <item>
+      <title>Understanding SQLite WAL mode</title>
+      <link>https://fixtures.example/eng/sqlite-wal</link>
+      <guid>https://fixtures.example/eng/sqlite-wal</guid>
+      <pubDate>Tue, 03 Jun 2025 10:30:00 GMT</pubDate>
+      <description><![CDATA[<p>Write-ahead logging explained with <b>examples</b>.</p>]]></description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens (prompt.md §9.7). Defined ONCE here; components consume semantic tokens
+   only (no raw hex / arbitrary values). Palette derived from mockup.html. */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 17% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 17% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 17% 12%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 40%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --primary: 217 90% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 17% 12%;
+    --accent: 142 60% 38%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 359 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 217 90% 55%;
+    --star: 43 89% 48%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 220 17% 7%;
+    --foreground: 228 14% 91%;
+    --card: 220 18% 11%;
+    --card-foreground: 228 14% 91%;
+    --popover: 220 18% 11%;
+    --popover-foreground: 228 14% 91%;
+    --muted: 222 17% 15%;
+    --muted-foreground: 220 12% 65%;
+    --border: 222 16% 20%;
+    --input: 222 16% 20%;
+    --primary: 217 98% 71%;
+    --primary-foreground: 217 68% 8%;
+    --secondary: 222 17% 15%;
+    --secondary-foreground: 228 14% 91%;
+    --accent: 130 68% 70%;
+    --accent-foreground: 217 68% 8%;
+    --destructive: 359 86% 70%;
+    --destructive-foreground: 0 0% 100%;
+    --ring: 217 98% 71%;
+    --star: 43 89% 65%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+  /* List density (§9.7): compact tightens everything proportionally via the root rem scale,
+     so no component needs density-specific classes. */
+  html.density-compact {
+    font-size: 14px;
+  }
+}
+
+/* Sanitized feed/article HTML (prompt.md §9.1a). Styled once with tokens so the preview never
+   needs raw values; the HTML itself is ammonia-sanitized server-side. */
+@layer components {
+  .article-content {
+    @apply text-sm leading-relaxed text-foreground;
+  }
+  .article-content a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .article-content p {
+    @apply my-3;
+  }
+  .article-content img {
+    @apply my-3 h-auto max-w-full rounded-md;
+  }
+  .article-content h1,
+  .article-content h2,
+  .article-content h3 {
+    @apply mb-2 mt-4 font-semibold;
+  }
+  .article-content ul {
+    @apply my-3 list-disc pl-5;
+  }
+  .article-content ol {
+    @apply my-3 list-decimal pl-5;
+  }
+  .article-content pre {
+    @apply my-3 overflow-x-auto rounded-md bg-muted p-3 text-xs;
+  }
+  .article-content code {
+    @apply rounded bg-muted px-1 py-0.5 text-xs;
+  }
+  .article-content blockquote {
+    @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+}

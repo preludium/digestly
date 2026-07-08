@@ -1,0 +1,341 @@
+//! On-demand summarization (prompt.md §6, §6a). Checks the shared cache first (any user's entry
+//! for the active model counts), else calls the active provider and caches the result keyed by
+//! (item, model). For video items it lazily fetches the transcript and produces a structured
+//! readable summary; with no captions it summarizes the description, clearly labelled.
+
+use anyhow::Result;
+use reqwest::Client;
+use sqlx::{Row, SqlitePool};
+
+use super::{budget, client, provider, transcript, AiParams, LlmRequest};
+use crate::ingest::content;
+
+/// Cap on source text sent to the model (chars). Transcripts get a larger budget.
+const READING_CAP: usize = 16_000;
+const TRANSCRIPT_CAP: usize = 28_000;
+
+/// A summarize result surfaced to the API.
+pub struct SummaryResult {
+    pub summary: String,
+    pub model: String,
+    pub cached: bool,
+}
+
+/// Why a summarize call couldn't produce a summary — each maps to a clear, key-free API error.
+pub enum SummarizeError {
+    /// No active provider configured (admin must add one).
+    NotConfigured,
+    /// The item has no text/transcript/description to summarize.
+    NoContent,
+    /// Daily/monthly token budget exhausted.
+    Budget(String),
+    /// The provider call failed (network/timeout/non-2xx).
+    Provider(String),
+    /// A database/internal error.
+    Internal(anyhow::Error),
+}
+
+impl From<sqlx::Error> for SummarizeError {
+    fn from(e: sqlx::Error) -> Self {
+        SummarizeError::Internal(e.into())
+    }
+}
+impl From<anyhow::Error> for SummarizeError {
+    fn from(e: anyhow::Error) -> Self {
+        SummarizeError::Internal(e)
+    }
+}
+
+struct ItemRow {
+    title: Option<String>,
+    content_text: Option<String>,
+    content_html: Option<String>,
+    transcript_text: Option<String>,
+    transcript_status: String,
+    url: Option<String>,
+    guid: Option<String>,
+    kind: String,
+    feed_title: String,
+}
+
+/// Summarize item `item_id` with the active provider. Caller must have already verified the user's
+/// access to the item (per-user scoping). `force` regenerates even if a cached summary exists.
+pub async fn summarize_item(
+    pool: &SqlitePool,
+    http: &Client,
+    enc_key: &[u8; 32],
+    item_id: i64,
+    force: bool,
+) -> Result<SummaryResult, SummarizeError> {
+    let active = provider::load_active(pool, enc_key)
+        .await?
+        .ok_or(SummarizeError::NotConfigured)?;
+    let model = active.model.clone();
+
+    // Cache hit (shared, keyed by item+model) — unless forced.
+    if !force {
+        if let Some(text) = cached(pool, item_id, &model).await? {
+            return Ok(SummaryResult { summary: text, model, cached: true });
+        }
+    }
+
+    let mut item = load_item(pool, item_id).await?;
+    let is_video = item.kind == "youtube";
+
+    // Video items: lazily fetch the transcript if we haven't tried yet (prompt.md §6a).
+    if is_video && item.transcript_status == "none" {
+        let params = AiParams::load(pool).await;
+        fetch_and_store_transcript(pool, http, item_id, &item, params.timeout_secs).await;
+        item = load_item(pool, item_id).await?; // reload updated transcript fields
+    }
+
+    let params = AiParams::load(pool).await;
+    let (system, source, truncated) = build_prompt(&item, is_video);
+    let source = match source {
+        Some(s) if !s.trim().is_empty() => s,
+        _ => return Err(SummarizeError::NoContent),
+    };
+
+    // Budget guard (before spending tokens).
+    budget::check(pool, &params).await.map_err(SummarizeError::Budget)?;
+
+    let mut user = format!(
+        "Title: {}\nSource: {}\n\n{}:\n{}",
+        item.title.as_deref().unwrap_or("(untitled)"),
+        item.feed_title,
+        if is_video { "Transcript" } else { "Article" },
+        source
+    );
+    if truncated {
+        user.push_str("\n\n[Note: the source was truncated for length; summarize what is present.]");
+    }
+
+    let llm = client::make_client(
+        http.clone(),
+        active.api_style,
+        active.base_url,
+        active.model,
+        active.key,
+        params.timeout_secs,
+    );
+    let req = LlmRequest { system, user, max_tokens: params.max_tokens, temperature: params.temperature };
+
+    let resp = llm
+        .complete(&req)
+        .await
+        .map_err(|e| SummarizeError::Provider(e.user_message()))?;
+
+    budget::record(pool, resp.tokens_used).await;
+    store_summary(pool, item_id, &model, active.api_style.as_str(), &resp.text, is_video, force).await?;
+
+    Ok(SummaryResult { summary: resp.text, model, cached: false })
+}
+
+/// Build (system prompt, source text, was-truncated). Reading vs video/description-based (§6a).
+fn build_prompt(item: &ItemRow, is_video: bool) -> (String, Option<String>, bool) {
+    if is_video {
+        let has_captions = item.transcript_status == "fetched";
+        let (raw, system) = if has_captions {
+            (
+                item.transcript_text.clone(),
+                "You turn video transcripts into a readable article so the reader can read instead of \
+                 watch. Output plain text with three parts: a 1–2 sentence intro; then 4–6 key-point \
+                 bullets each starting with '- '; then a final line starting 'Takeaways: ' with the \
+                 main conclusions. Aim for a 1–3 minute read. Do not invent facts not in the transcript."
+                    .to_string(),
+            )
+        } else {
+            // No captions → summarize the description, labelled (prompt.md §6a).
+            (
+                text_of(item),
+                "No captions are available for this video, so you are given only its description. \
+                 Summarize what the video is likely about BASED ON THE DESCRIPTION ONLY. Begin with \
+                 'Description-based summary (no transcript available):' then 2–4 '- ' bullets. Do not \
+                 fabricate details that aren't in the description."
+                    .to_string(),
+            )
+        };
+        let (src, trunc) = cap_opt(raw, TRANSCRIPT_CAP);
+        (system, src, trunc)
+    } else {
+        let system =
+            "You summarize articles for a busy reader. Output plain text: a one-sentence overview; \
+             then 3–5 '- ' bullets of the key facts; then a final line starting 'Takeaway: '. Be \
+             concise and do not invent facts."
+                .to_string();
+        let (src, trunc) = cap_opt(text_of(item), READING_CAP);
+        (system, src, trunc)
+    }
+}
+
+/// Prefer stored plain text; fall back to stripping sanitized HTML (prompt.md §5).
+fn text_of(item: &ItemRow) -> Option<String> {
+    if let Some(t) = item.content_text.as_deref().filter(|t| !t.trim().is_empty()) {
+        return Some(t.to_string());
+    }
+    item.content_html
+        .as_deref()
+        .filter(|h| !h.trim().is_empty())
+        .map(|h| content::to_text(h, READING_CAP * 2))
+}
+
+fn cap_opt(s: Option<String>, cap: usize) -> (Option<String>, bool) {
+    match s {
+        Some(s) if s.chars().count() > cap => (Some(s.chars().take(cap).collect()), true),
+        other => (other, false),
+    }
+}
+
+async fn cached(pool: &SqlitePool, item_id: i64, model: &str) -> Result<Option<String>, sqlx::Error> {
+    Ok(sqlx::query("SELECT summary_text FROM item_summaries WHERE item_id = ? AND model = ?")
+        .bind(item_id)
+        .bind(model)
+        .fetch_optional(pool)
+        .await?
+        .map(|r| r.get("summary_text")))
+}
+
+async fn load_item(pool: &SqlitePool, item_id: i64) -> Result<ItemRow, SummarizeError> {
+    let r = sqlx::query(
+        "SELECT i.title, i.content_text, i.content_html, i.transcript_text, i.transcript_status,
+                i.url, i.guid, fe.kind AS kind,
+                COALESCE(NULLIF(fe.title, ''), fe.feed_url) AS feed_title
+         FROM items i JOIN feeds fe ON fe.id = i.feed_id WHERE i.id = ?",
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| SummarizeError::Internal(anyhow::anyhow!("item vanished")))?;
+    Ok(ItemRow {
+        title: r.get("title"),
+        content_text: r.get("content_text"),
+        content_html: r.get("content_html"),
+        transcript_text: r.get("transcript_text"),
+        transcript_status: r.get("transcript_status"),
+        url: r.get("url"),
+        guid: r.get("guid"),
+        kind: r.get("kind"),
+        feed_title: r.get("feed_title"),
+    })
+}
+
+/// Fetch a video transcript and persist it (best-effort; sets status fetched/unavailable).
+async fn fetch_and_store_transcript(
+    pool: &SqlitePool,
+    http: &Client,
+    item_id: i64,
+    item: &ItemRow,
+    timeout_secs: u64,
+) {
+    let Some(vid) = transcript::video_id(item.url.as_deref(), item.guid.as_deref()) else {
+        let _ = set_transcript(pool, item_id, None, "unavailable").await;
+        return;
+    };
+    match transcript::fetch(http, &vid, timeout_secs).await {
+        transcript::Transcript::Text(text) => {
+            let _ = set_transcript(pool, item_id, Some(&text), "fetched").await;
+        }
+        transcript::Transcript::Unavailable => {
+            let _ = set_transcript(pool, item_id, None, "unavailable").await;
+        }
+    }
+}
+
+async fn set_transcript(pool: &SqlitePool, item_id: i64, text: Option<&str>, status: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE items SET transcript_text = ?, transcript_status = ? WHERE id = ?")
+        .bind(text)
+        .bind(status)
+        .bind(item_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Upsert the shared summary cache and refresh reading time (prompt.md §6, §6a).
+async fn store_summary(
+    pool: &SqlitePool,
+    item_id: i64,
+    model: &str,
+    api_style: &str,
+    summary: &str,
+    is_video: bool,
+    force: bool,
+) -> Result<(), sqlx::Error> {
+    // On force, refresh the existing row's text + timestamp; otherwise insert (or leave a race
+    // winner in place).
+    let _ = force;
+    sqlx::query(
+        "INSERT INTO item_summaries (item_id, model, api_style, summary_text)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(item_id, model) DO UPDATE SET
+             summary_text = excluded.summary_text,
+             api_style    = excluded.api_style,
+             created_at   = datetime('now')",
+    )
+    .bind(item_id)
+    .bind(model)
+    .bind(api_style)
+    .bind(summary)
+    .execute(pool)
+    .await?;
+
+    // Reading time: for video items the summary IS the readable content; for articles only fill a
+    // missing value (don't clobber the article's own reading time).
+    let secs = content::reading_time_secs(summary);
+    if is_video {
+        sqlx::query("UPDATE items SET reading_time_secs = ? WHERE id = ?")
+            .bind(secs)
+            .bind(item_id)
+            .execute(pool)
+            .await?;
+    } else {
+        sqlx::query("UPDATE items SET reading_time_secs = COALESCE(reading_time_secs, ?) WHERE id = ?")
+            .bind(secs)
+            .bind(item_id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(kind: &str, transcript_status: &str, transcript: Option<&str>, text: Option<&str>) -> ItemRow {
+        ItemRow {
+            title: Some("T".into()),
+            content_text: text.map(String::from),
+            content_html: None,
+            transcript_text: transcript.map(String::from),
+            transcript_status: transcript_status.into(),
+            url: Some("https://www.youtube.com/watch?v=abc".into()),
+            guid: None,
+            kind: kind.into(),
+            feed_title: "F".into(),
+        }
+    }
+
+    #[test]
+    fn reading_prompt_uses_article_text() {
+        let (system, source, _) = build_prompt(&item("rss", "none", None, Some("article body")), false);
+        assert!(system.contains("summarize articles"));
+        assert_eq!(source.as_deref(), Some("article body"));
+    }
+
+    #[test]
+    fn video_with_captions_uses_transcript() {
+        let it = item("youtube", "fetched", Some("the transcript"), Some("desc"));
+        let (system, source, _) = build_prompt(&it, true);
+        assert!(system.contains("video transcripts"));
+        assert_eq!(source.as_deref(), Some("the transcript"), "prefers transcript over description");
+    }
+
+    #[test]
+    fn video_without_captions_falls_back_to_description_labelled() {
+        let it = item("youtube", "unavailable", None, Some("just the description"));
+        let (system, source, _) = build_prompt(&it, true);
+        assert!(system.contains("No captions are available"), "description-based, labelled (§6a)");
+        assert_eq!(source.as_deref(), Some("just the description"));
+    }
+}

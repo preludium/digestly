@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Fixture AI Weekly</title>
+  <link href="https://fixtures.example/ai"/>
+  <updated>2025-06-04T12:00:00Z</updated>
+  <entry>
+    <title>A gentle intro to retrieval-augmented generation</title>
+    <link href="https://fixtures.example/ai/rag-intro"/>
+    <id>https://fixtures.example/ai/rag-intro</id>
+    <updated>2025-06-04T12:00:00Z</updated>
+    <content type="html"><![CDATA[<p>What RAG is and when to use it.</p>]]></content>
+  </entry>
+  <entry>
+    <title>Evaluating small language models</title>
+    <link href="https://fixtures.example/ai/small-models"/>
+    <id>https://fixtures.example/ai/small-models</id>
+    <updated>2025-06-05T08:15:00Z</updated>
+    <content type="html"><![CDATA[<p>Benchmarks for on-device models.</p>]]></content>
+  </entry>
+</feed>
