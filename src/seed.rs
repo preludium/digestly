@@ -3,9 +3,8 @@
 use anyhow::Result;
 use sqlx::SqlitePool;
 
-/// The six default categories seeded per account. `Other` is last and non-deletable (§2).
-pub const DEFAULT_CATEGORIES: [&str; 6] =
-    ["AI", "Software Engineering", "Finance", "Politics", "Lifestyle", "Other"];
+/// The single default category seeded per account. `Other` is non-deletable (§2, §TODO-9).
+pub const DEFAULT_CATEGORIES: [&str; 1] = ["Other"];
 
 /// The protected catch-all category name.
 pub const OTHER_CATEGORY: &str = "Other";

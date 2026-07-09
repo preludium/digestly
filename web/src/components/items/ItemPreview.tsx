@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ExternalLink, Sparkles, Star } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Sparkles, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -42,11 +42,17 @@ export function ItemPreview({ item, onClose }: { item: Item | null; onClose: () 
                   <Star className={cn("size-5", view.is_starred && "fill-star text-star")} />
                 </Button>
                 <Button
-                  variant={view.is_read ? "secondary" : "outline"}
+                  variant={view.is_read ? "secondary" : "default"}
                   size="sm"
                   onClick={() => toggleRead.mutate({ id: view.id, value: !view.is_read })}
                 >
-                  {view.is_read ? "Read" : "Mark read"}
+                  {view.is_read ? (
+                    <>
+                      <Check className="size-4" /> Mark as unread
+                    </>
+                  ) : (
+                    "Mark as read"
+                  )}
                 </Button>
               </div>
             </div>
@@ -88,15 +94,7 @@ function PreviewBody({
         {isVideo ? `🎬 Video · ${view.category} · shown as text` : `📖 Reading · ${view.category}`}
       </p>
 
-      <h1 className="text-xl font-bold leading-tight">
-        {view.url ? (
-          <a href={view.url} target="_blank" rel="noreferrer" className="hover:underline">
-            {view.title ?? "Untitled"}
-          </a>
-        ) : (
-          (view.title ?? "Untitled")
-        )}
-      </h1>
+      <h1 className="text-xl font-bold leading-tight">{view.title ?? "Untitled"}</h1>
 
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span className="font-medium">{view.feed_title}</span>
@@ -109,7 +107,7 @@ function PreviewBody({
 
       {view.url && (
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="default" size="sm" asChild>
             <a href={view.url} target="_blank" rel="noreferrer" onClick={onOpen}>
               <ExternalLink className="size-4" /> Open original
             </a>
@@ -171,17 +169,6 @@ function VideoBody({ view }: { view: Item & Partial<ItemDetail> }) {
         )}
       </div>
 
-      {/* 3. De-emphasized watch link */}
-      {view.url && (
-        <a
-          href={view.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          ▶ Watch on YouTube
-        </a>
-      )}
     </div>
   );
 }

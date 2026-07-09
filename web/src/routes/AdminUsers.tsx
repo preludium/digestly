@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   useAdminSettings,
@@ -30,18 +33,16 @@ function RegistrationToggle() {
         <p className="text-sm text-muted-foreground">
           When on, anyone can create an account. When off, only you can.
         </p>
-        <Button
-          variant={enabled ? "default" : "outline"}
-          disabled={settings.isLoading || update.isPending}
-          onClick={() =>
+        <Switch
+          checked={enabled}
+          onCheckedChange={() =>
             update.mutate(
               { allow_registration: !enabled },
               { onSuccess: () => toast(`Registration ${!enabled ? "enabled" : "disabled"}`, "success") },
             )
           }
-        >
-          {enabled ? "On" : "Off"}
-        </Button>
+          disabled={settings.isLoading || update.isPending}
+        />
       </CardContent>
     </Card>
   );
@@ -53,19 +54,26 @@ function UserRow({ user, meId }: { user: AdminUser; meId: number }) {
   const isBuiltin = user.username === BUILTIN_ADMIN;
   const isSelf = user.id === meId;
   const busy = update.isPending || del.isPending;
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <TableRow>
       <TableCell className="font-medium">{user.username}</TableCell>
       <TableCell>
-        <Badge variant={user.role === "admin" ? "default" : "secondary"}>{user.role}</Badge>
+        <Badge variant={user.role === "admin" ? "info" : "secondary"}>{user.role}</Badge>
       </TableCell>
       <TableCell>
-        {user.disabled ? (
-          <Badge variant="destructive">disabled</Badge>
-        ) : (
-          <Badge variant="outline">active</Badge>
-        )}
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={!user.disabled}
+            onCheckedChange={() => update.mutate({ id: user.id, disabled: !user.disabled })}
+            disabled={busy || isBuiltin || isSelf}
+            aria-label="Account enabled"
+          />
+          <span className="text-xs text-muted-foreground">
+            {user.disabled ? "Disabled" : "Active"}
+          </span>
+        </div>
       </TableCell>
       <TableCell className="text-muted-foreground">{user.subscription_count}</TableCell>
       <TableCell className="text-muted-foreground">{user.last_login_at ?? "never"}</TableCell>
@@ -83,24 +91,23 @@ function UserRow({ user, meId }: { user: AdminUser; meId: number }) {
           </Button>
           <Button
             size="sm"
-            variant="outline"
-            disabled={busy || isBuiltin || isSelf}
-            onClick={() => update.mutate({ id: user.id, disabled: !user.disabled })}
-          >
-            {user.disabled ? "Enable" : "Disable"}
-          </Button>
-          <Button
-            size="sm"
             variant="destructive"
             disabled={busy || isBuiltin || isSelf}
-            onClick={() => {
-              if (confirm(`Delete ${user.username} and all their data?`)) {
-                del.mutate(user.id, { onSuccess: () => toast("User deleted", "success") });
-              }
-            }}
+            onClick={() => setDeleting(true)}
           >
             Delete
           </Button>
+          <ConfirmDialog
+            open={deleting}
+            onOpenChange={setDeleting}
+            title={`Delete ${user.username}?`}
+            description="All their data will be permanently removed."
+            confirmLabel="Delete"
+            destructive
+            onConfirm={() => {
+              del.mutate(user.id, { onSuccess: () => toast("User deleted", "success") });
+            }}
+          />
         </div>
       </TableCell>
     </TableRow>
@@ -113,7 +120,7 @@ export function AdminUsers() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Users</h1>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Users</h1>
       <RegistrationToggle />
 
       <Card>
@@ -138,7 +145,7 @@ export function AdminUsers() {
                   <TableHead>Status</TableHead>
                   <TableHead>Feeds</TableHead>
                   <TableHead>Last login</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-right"><span className="sr-only">Actions</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

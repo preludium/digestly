@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Link2, RefreshCw, Youtube } from "lucide-react";
+import { Link2, RefreshCw, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { useCategories } from "@/hooks/useCategories";
@@ -75,7 +75,7 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
   const sync = useOauthSync();
   const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
 
-  const Icon = conn.provider === "youtube" ? Youtube : Link2;
+  const Icon = conn.provider === "youtube" ? Play : Link2;
 
   const doSync = () =>
     sync.mutate(
@@ -123,17 +123,19 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
       {conn.connected && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select
-            className="sm:w-56"
-            aria-label="Import into category"
-            value={categoryId ?? ""}
-            onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : undefined)}
+            value={categoryId === undefined ? "" : String(categoryId)}
+            onValueChange={(v) => setCategoryId(v ? Number(v) : undefined)}
           >
-            <option value="">Import into: Other (default)</option>
-            {(categories.data ?? []).map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                Import into: {cat.name}
-              </option>
-            ))}
+            <SelectTrigger className="sm:w-56" aria-label="Import into category">
+              <SelectValue placeholder="Import into: Other (default)" />
+            </SelectTrigger>
+            <SelectContent>
+              {(categories.data ?? []).map((cat) => (
+                <SelectItem key={cat.id} value={String(cat.id)}>
+                  Import into: {cat.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <Button variant="outline" size="sm" disabled={sync.isPending} onClick={doSync}>
             {sync.isPending ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}

@@ -1,8 +1,9 @@
-import { ImageIcon, MessageSquare, Play, TrendingUp } from "lucide-react";
+import { ImageIcon, MessageSquare, Play, Star, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDuration, readingTimeLabel, relativeTime } from "@/lib/format";
 import { highlight } from "@/lib/highlight";
+import { topicBadgeClass } from "@/lib/topicColor";
 import type { Item } from "@/lib/types";
 
 /** The single card used by both the feed and search grids (prompt.md §9.1 — DRY, one card). */
@@ -43,14 +44,16 @@ export function ItemCard({ item, onOpen, query = "" }: { item: Item; onOpen: (it
             )}
           </>
         )}
-        {!item.is_read && (
-          <span className="absolute left-2 top-2 size-2.5 rounded-full bg-primary ring-2 ring-card" aria-label="Unread" />
+        {item.is_starred && (
+          <span className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-full bg-background/85">
+            <Star className="size-3.5 fill-star text-star" />
+          </span>
         )}
       </div>
 
       {/* Body */}
       <div className="flex flex-1 flex-col gap-2 p-3">
-        <h3 className="line-clamp-2 font-semibold leading-snug">{highlight(item.title ?? "Untitled", query)}</h3>
+        <h3 className={cn("line-clamp-2 font-semibold leading-snug", item.is_read && "text-muted-foreground")}>{highlight(item.title ?? "Untitled", query)}</h3>
         <p className="text-xs text-muted-foreground">
           <span className="font-medium">{item.feed_title}</span>
           {item.published_at && <> · {relativeTime(item.published_at)}</>}
@@ -60,7 +63,7 @@ export function ItemCard({ item, onOpen, query = "" }: { item: Item; onOpen: (it
         {/* Pills */}
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
           {timeLabel && <Badge variant="secondary">{timeLabel}</Badge>}
-          <Badge variant="outline">{item.category}</Badge>
+          <Badge variant="secondary" className={cn(topicBadgeClass(item.category))}>{item.category}</Badge>
           {item.score != null && (
             <Badge variant="secondary" className="gap-1">
               <TrendingUp className="size-3" /> {item.score}

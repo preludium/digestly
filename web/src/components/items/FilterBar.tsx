@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { useCategories } from "@/hooks/useCategories";
@@ -102,39 +102,51 @@ function Facets({
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 wide:flex wide:flex-wrap wide:items-end">
         <Field label="Type">
-          <Select value={filters.type} onChange={(e) => setFacet("type", e.target.value as ItemType)}>
-            {TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
+          <Select value={filters.type} onValueChange={(v) => setFacet("type", v as ItemType)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TYPES.map((t) => (
+                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </Field>
         <Field label="Status">
-          <Select value={filters.status} onChange={(e) => setFacet("status", e.target.value as ItemStatus)}>
-            {STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
+          <Select value={filters.status} onValueChange={(v) => setFacet("status", v as ItemStatus)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUSES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </Field>
         <Field label="When">
-          <Select value={filters.when} onChange={(e) => setFacet("when", e.target.value as ItemWhen)}>
-            {WHENS.map((w) => (
-              <option key={w.value} value={w.value}>
-                {w.label}
-              </option>
-            ))}
+          <Select value={filters.when} onValueChange={(v) => setFacet("when", v as ItemWhen)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {WHENS.map((w) => (
+                <SelectItem key={w.value} value={w.value}>{w.label}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </Field>
         <Field label="Sort">
-          <Select value={filters.sort} onChange={(e) => setFacet("sort", e.target.value as ItemSort)}>
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
+          <Select value={filters.sort} onValueChange={(v) => setFacet("sort", v as ItemSort)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
         </Field>
         {activeCount > 0 && (

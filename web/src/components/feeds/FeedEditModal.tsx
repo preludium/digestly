@@ -4,12 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NumberField } from "@/components/ui/number-field";
+import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useCategories } from "@/hooks/useCategories";
 import { useRefreshFeed, useUnsubscribe, useUpdateFeed } from "@/hooks/useFeeds";
 import { formatDateTime, kindLabel } from "@/lib/format";
 import type { ContentType, Feed } from "@/lib/types";
 import { toast } from "@/stores/toast";
+import { sortCategoriesOtherLast } from "@/routes/manage.helpers";
 
 /** Feed settings / edit (prompt.md §9.4). Controlled by the caller; `feed` null hides it. */
 export function FeedEditModal({ feed, onClose }: { feed: Feed | null; onClose: () => void }) {
@@ -38,6 +42,7 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
   const [fullText, setFullText] = useState(feed.full_text_extract);
   const [disabled, setDisabled] = useState(feed.disabled);
   const [intervalMin, setIntervalMin] = useState(Math.round(feed.fetch_interval_secs / 60));
+  const [unsubscribing, setUnsubscribing] = useState(false);
 
   // Reset local state if a different feed is opened (belt-and-suspenders with the `key` above).
   useEffect(() => {
@@ -69,6 +74,8 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
 
   return (
     <div className="space-y-4">
+      {/* Basics */}
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Basics</p>
       <div className="space-y-1.5">
         <Label htmlFor="title">Title override</Label>
         <Input id="title" value={titleOverride} onChange={(e) => setTitleOverride(e.target.value)} />
@@ -78,31 +85,44 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
         <Label htmlFor="cat">
           Category <span className="text-destructive">*</span>
         </Label>
-        <Select id="cat" value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))}>
-          {categories.data?.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
+        <Select value={String(categoryId)} onValueChange={(v) => setCategoryId(Number(v))}>
+          <SelectTrigger id="cat">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {sortCategoriesOtherLast(categories.data ?? []).map((c) => (
+              <SelectItem key={c.id} value={String(c.id)}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
       </div>
 
+      <div className="border-t border-border" />
+
+      {/* Fetching */}
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fetching</p>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="ct">Content type</Label>
-          <Select id="ct" value={contentType} onChange={(e) => setContentType(e.target.value as ContentType)}>
-            <option value="reading">📖 Reading</option>
-            <option value="video">🎬 Video</option>
+          <Select value={contentType} onValueChange={(v) => setContentType(v as ContentType)}>
+            <SelectTrigger id="ct">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="reading">📖 Reading</SelectItem>
+              <SelectItem value="video">🎬 Video</SelectItem>
+            </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="int">Interval (min)</Label>
-          <Input
+          <NumberField
             id="int"
-            type="number"
-            min={1}
             value={intervalMin}
-            onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 60))}
+            onChange={setIntervalMin}
+            min={1}
           />
         </div>
       </div>
@@ -110,27 +130,30 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
       {feed.kind === "reddit" && (
         <div className="space-y-1.5">
           <Label htmlFor="ms">Minimum score (Reddit)</Label>
-          <Input
+          <NumberField
             id="ms"
-            type="number"
-            min={0}
             value={minScore}
-            onChange={(e) => setMinScore(Math.max(0, Number(e.target.value) || 0))}
+            onChange={setMinScore}
+            min={0}
           />
         </div>
       )}
 
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="size-4 accent-primary" checked={fullText} onChange={(e) => setFullText(e.target.checked)} />
-          Fetch full article text (readability)
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="size-4 accent-primary" checked={disabled} onChange={(e) => setDisabled(e.target.checked)} />
-          Pause this feed (stop showing new items)
-        </label>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="fulltext" className="text-sm font-normal">Fetch full article text (readability)</Label>
+          <Switch id="fulltext" checked={fullText} onCheckedChange={setFullText} />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="paused" className="text-sm font-normal">Pause this feed (stop showing new items)</Label>
+          <Switch id="paused" checked={disabled} onCheckedChange={setDisabled} />
+        </div>
       </div>
 
+      <div className="border-t border-border" />
+
+      {/* Diagnostics */}
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Diagnostics</p>
       <div className="space-y-1.5">
         <Label>Feed URL</Label>
         <Input value={feed.feed_url} readOnly className="text-muted-foreground" />
@@ -167,20 +190,26 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
           <Button
             type="button"
             variant="destructive"
-            onClick={() => {
-              if (confirm(`Unsubscribe from "${feed.title}"?`)) {
-                unsubscribe.mutate(feed.id, {
-                  onSuccess: () => {
-                    toast("Unsubscribed", "success");
-                    onClose();
-                  },
-                });
-              }
-            }}
+            onClick={() => setUnsubscribing(true)}
             disabled={unsubscribe.isPending}
           >
             <Trash2 className="size-4" /> Unsubscribe
           </Button>
+          <ConfirmDialog
+            open={unsubscribing}
+            onOpenChange={setUnsubscribing}
+            title={`Unsubscribe from "${feed.title}"?`}
+            confirmLabel="Unsubscribe"
+            destructive
+            onConfirm={() => {
+              unsubscribe.mutate(feed.id, {
+                onSuccess: () => {
+                  toast("Unsubscribed", "success");
+                  onClose();
+                },
+              });
+            }}
+          />
         </div>
         <Button type="button" onClick={save} disabled={update.isPending}>
           {update.isPending ? "Saving…" : "Save"}

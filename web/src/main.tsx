@@ -8,6 +8,8 @@ import { Toaster } from "./components/common/Toaster";
 import { queryClient } from "./lib/queryClient";
 import { applyDensity, applyTheme, useUiStore } from "./stores/ui";
 import { registerServiceWorker } from "./lib/pwa";
+import "@fontsource-variable/fraunces";
+import "@fontsource-variable/instrument-sans";
 import "./index.css";
 
 // Apply the persisted theme + density before first paint.

@@ -28,13 +28,19 @@ async fn subscribe_starter_feeds(user: CurrentUser, State(state): State<AppState
     let cfg = IngestSettings::load(&state.pool).await;
     let mut added = 0usize;
     for (feed_url, kind, category) in crate::seed::STARTER_FEEDS {
-        let cat_id: Option<i64> = sqlx::query("SELECT id FROM categories WHERE user_id = ? AND name = ?")
+        // Create category on demand — only "Other" is seeded now (§TODO-9).
+        sqlx::query("INSERT OR IGNORE INTO categories (user_id, name, position) VALUES (?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM categories WHERE user_id = ?))")
             .bind(user.id)
             .bind(category)
-            .fetch_optional(&state.pool)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
+        let cat_id: i64 = sqlx::query("SELECT id FROM categories WHERE user_id = ? AND name = ?")
+            .bind(user.id)
+            .bind(category)
+            .fetch_one(&state.pool)
             .await?
-            .map(|r| r.get("id"));
-        let Some(cat_id) = cat_id else { continue };
+            .get("id");
         if crate::routes::feeds::subscribe_url(&state.pool, &cfg, user.id, feed_url, FeedKind::from_db(kind), cat_id, None, true).await? {
             added += 1;
         }

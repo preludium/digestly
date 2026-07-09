@@ -7,7 +7,7 @@ export function AuthCard({ title, children }: { title: string; children: React.R
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <span className="text-center text-2xl font-bold tracking-tight">Digestly</span>
+          <span className="font-display text-center text-2xl font-semibold tracking-tight">Digestly</span>
           <CardTitle className="text-center text-base font-medium text-muted-foreground">
             {title}
           </CardTitle>

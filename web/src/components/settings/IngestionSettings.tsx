@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useIngestionSettings, usePurgeRetention, useUpdateIngestionSettings } from "@/hooks/useSettings";
 import { toast } from "@/stores/toast";
 import type { IngestionSettings as Ingestion } from "@/lib/types";
@@ -24,7 +26,6 @@ export function IngestionSettings() {
   if (settings.isError) return <ErrorBanner error={settings.error} />;
 
   const patch = (p: Partial<Ingestion>) => setForm((f) => (f ? { ...f, ...p } : f));
-  const num = (v: string, min: number) => Math.max(min, Number(v) || 0);
 
   const save = () =>
     update.mutate(form, {
@@ -32,13 +33,9 @@ export function IngestionSettings() {
       onError: (e) => toast(e instanceof Error ? e.message : "Could not save", "error"),
     });
 
+  const [confirmPurge, setConfirmPurge] = useState(false);
+
   const purgeNow = () => {
-    if (
-      !window.confirm(
-        "Delete items older than the saved retention policy right now? Starred items are always kept. This cannot be undone.",
-      )
-    )
-      return;
     purge.mutate(undefined, {
       onSuccess: (r) => toast(`Deleted ${r.removed} item${r.removed === 1 ? "" : "s"}`, "success"),
       onError: (e) => toast(e instanceof Error ? e.message : "Delete failed", "error"),
@@ -53,19 +50,21 @@ export function IngestionSettings() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumField label="Global concurrency" value={form.concurrency} onChange={(v) => patch({ concurrency: num(v, 1) })} />
-        <NumField label="Per-host delay (ms)" value={form.per_host_delay_ms} onChange={(v) => patch({ per_host_delay_ms: num(v, 0) })} />
-        <NumField label="Fetch timeout (seconds)" value={form.timeout_secs} onChange={(v) => patch({ timeout_secs: num(v, 1) })} />
-        <NumField label="Default interval (seconds)" value={form.default_interval_secs} onChange={(v) => patch({ default_interval_secs: num(v, 60) })} />
+        <NumField label="Global concurrency" value={form.concurrency} onChange={(v) => patch({ concurrency: v })} min={1} />
+        <NumField label="Per-host delay (ms)" value={form.per_host_delay_ms} onChange={(v) => patch({ per_host_delay_ms: v })} min={0} />
+        <NumField label="Fetch timeout (seconds)" value={form.timeout_secs} onChange={(v) => patch({ timeout_secs: v })} min={1} />
+        <NumField label="Default interval (seconds)" value={form.default_interval_secs} onChange={(v) => patch({ default_interval_secs: v })} min={60} />
         <NumField
           label="Retention: purge older than (days, 0 = keep)"
           value={form.retention_max_age_days}
-          onChange={(v) => patch({ retention_max_age_days: num(v, 0) })}
+          onChange={(v) => patch({ retention_max_age_days: v })}
+          min={0}
         />
         <NumField
           label="Retention: keep per feed (0 = unlimited)"
           value={form.retention_max_per_feed}
-          onChange={(v) => patch({ retention_max_per_feed: num(v, 0) })}
+          onChange={(v) => patch({ retention_max_per_feed: v })}
+          min={0}
         />
       </div>
       <div className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -73,18 +72,13 @@ export function IngestionSettings() {
           Starred items are always kept, regardless of retention. "Delete now" uses the retention values
           saved above — save your changes first if you just edited them.
         </p>
-        <Button variant="outline" disabled={purge.isPending} onClick={purgeNow}>
+        <Button variant="outline" disabled={purge.isPending} onClick={() => setConfirmPurge(true)}>
           {purge.isPending ? "Deleting…" : "Delete now"}
         </Button>
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 accent-primary"
-          checked={form.allow_private}
-          onChange={(e) => patch({ allow_private: e.target.checked })}
-        />
+        <Switch checked={form.allow_private} onCheckedChange={(v) => patch({ allow_private: v })} />
         Allow fetching private / loopback addresses (SSRF override — leave off unless you self-host feeds on your LAN)
       </label>
 
@@ -93,15 +87,25 @@ export function IngestionSettings() {
           {update.isPending ? "Saving…" : "Save settings"}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmPurge}
+        onOpenChange={setConfirmPurge}
+        title="Delete old items?"
+        description="Delete items older than the saved retention policy right now? Starred items are always kept. This cannot be undone."
+        confirmLabel="Delete now"
+        destructive
+        onConfirm={purgeNow}
+      />
     </div>
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: string) => void }) {
+function NumField({ label, value, onChange, min }: { label: string; value: number; onChange: (v: number) => void; min?: number }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input type="number" value={value} onChange={(e) => onChange(e.target.value)} />
+      <NumberField value={value} onChange={onChange} min={min} />
     </div>
   );
 }

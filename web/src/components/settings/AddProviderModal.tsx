@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { useAiPresets, useCreateProvider } from "@/hooks/useAi";
 import { toast } from "@/stores/toast";
@@ -91,13 +91,18 @@ function ProviderForm({ presets, onDone }: { presets: AiPreset[]; onDone: () => 
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="preset">Provider</Label>
-        <Select id="preset" value={choice} onChange={(e) => selectPreset(e.target.value)}>
-          {presets.map((p) => (
-            <option key={p.provider_type} value={p.provider_type}>
-              {p.name}
-            </option>
-          ))}
-          <option value={CUSTOM}>Custom endpoint…</option>
+        <Select value={choice} onValueChange={(v) => selectPreset(v)}>
+          <SelectTrigger id="preset">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {presets.map((p) => (
+              <SelectItem key={p.provider_type} value={p.provider_type}>
+                {p.name}
+              </SelectItem>
+            ))}
+            <SelectItem value={CUSTOM}>Custom endpoint…</SelectItem>
+          </SelectContent>
         </Select>
       </div>
 
@@ -110,9 +115,14 @@ function ProviderForm({ presets, onDone }: { presets: AiPreset[]; onDone: () => 
             <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" />
           </Field>
           <Field label="API style">
-            <Select value={apiStyle} onChange={(e) => setApiStyle(e.target.value as ApiStyle)}>
-              <option value="openai">OpenAI-compatible</option>
-              <option value="anthropic">Anthropic</option>
+            <Select value={apiStyle} onValueChange={(v) => setApiStyle(v as ApiStyle)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai">OpenAI-compatible</SelectItem>
+                <SelectItem value="anthropic">Anthropic</SelectItem>
+              </SelectContent>
             </Select>
           </Field>
         </>

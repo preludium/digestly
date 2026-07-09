@@ -1,4 +1,7 @@
 import { KeyRound, Pencil, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { NameDialog } from "@/components/common/NameDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,10 +23,11 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
   const rename = useRenamePasskey();
   const remove = useDeletePasskey();
 
-  const add = async () => {
-    const name = window.prompt("Name this passkey (e.g. “MacBook Touch ID”)", "")?.trim();
-    // Cancelled the name prompt → don't start the ceremony.
-    if (name === undefined) return;
+  const [adding, setAdding] = useState(false);
+  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
+  const [deleting, setDeleting] = useState<{ id: number; name: string } | null>(null);
+
+  const handleAdd = async (name: string) => {
     try {
       await register.mutateAsync(name || undefined);
       toast("Passkey added", "success");
@@ -33,15 +37,17 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
     }
   };
 
-  const doRename = (id: number, current: string) => {
-    const name = window.prompt("Rename passkey", current)?.trim();
-    if (!name || name === current) return;
-    rename.mutate({ id, name }, { onError: (e) => toast(e instanceof Error ? e.message : "Rename failed", "error") });
+  const handleRename = (name: string) => {
+    if (!renaming) return;
+    rename.mutate(
+      { id: renaming.id, name },
+      { onError: (e) => toast(e instanceof Error ? e.message : "Rename failed", "error") },
+    );
   };
 
-  const doDelete = (id: number, name: string) => {
-    if (!window.confirm(`Delete passkey “${name}”? You won't be able to sign in with it anymore.`)) return;
-    remove.mutate(id, {
+  const handleDelete = () => {
+    if (!deleting) return;
+    remove.mutate(deleting.id, {
       onSuccess: () => toast("Passkey removed", "success"),
       onError: (e) => toast(e instanceof Error ? e.message : "Delete failed", "error"),
     });
@@ -72,10 +78,10 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
-                <Button variant="ghost" size="icon" aria-label="Rename passkey" onClick={() => doRename(pk.id, pk.name)}>
+                <Button variant="ghost" size="icon" aria-label="Rename passkey" onClick={() => setRenaming({ id: pk.id, name: pk.name })}>
                   <Pencil className="size-4" />
                 </Button>
-                <Button variant="ghost" size="icon" aria-label="Delete passkey" onClick={() => doDelete(pk.id, pk.name)}>
+                <Button variant="ghost" size="icon" aria-label="Delete passkey" onClick={() => setDeleting({ id: pk.id, name: pk.name })}>
                   <Trash2 className="size-4" />
                 </Button>
               </div>
@@ -86,10 +92,39 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
         !compact && <p className="text-sm text-muted-foreground">No passkeys yet. Add one for passwordless sign-in.</p>
       )}
 
-      <Button variant="outline" size="sm" disabled={register.isPending} onClick={add}>
+      <Button variant="outline" size="sm" disabled={register.isPending} onClick={() => setAdding(true)}>
         {register.isPending ? <Spinner className="size-4" /> : <KeyRound className="size-4" />}
         Add a passkey
       </Button>
+
+      <NameDialog
+        open={adding}
+        onOpenChange={setAdding}
+        title="Add a passkey"
+        label="Passkey name"
+        placeholder='e.g. "MacBook Touch ID"'
+        submitLabel="Continue"
+        allowEmpty
+        onSubmit={handleAdd}
+      />
+      <NameDialog
+        open={!!renaming}
+        onOpenChange={(v) => !v && setRenaming(null)}
+        title="Rename passkey"
+        label="Name"
+        initialValue={renaming?.name ?? ""}
+        submitLabel="Rename"
+        onSubmit={handleRename}
+      />
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(v) => !v && setDeleting(null)}
+        title={`Delete passkey "${deleting?.name ?? ""}"?`}
+        description="You won't be able to sign in with it anymore."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

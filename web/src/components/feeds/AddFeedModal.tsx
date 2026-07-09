@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { NumberField } from "@/components/ui/number-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -81,7 +83,7 @@ function AddFeedBody({ onDone }: { onDone: () => void }) {
       >
         <Input
           autoFocus
-          placeholder="https://example.com  ·  @channel  ·  r/programming"
+          placeholder="Feed or site URL"
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
@@ -231,16 +233,19 @@ function ConfigureStep({
         ) : (
           <div className="flex gap-2">
             <Select
-              id="category"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")}
+              value={categoryId === "" ? "" : String(categoryId)}
+              onValueChange={(v) => setCategoryId(v ? Number(v) : "")}
             >
-              <option value="">Select a category…</option>
-              {categories.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              <SelectTrigger id="category">
+                <SelectValue placeholder="Select a category…" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.data?.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <Button type="button" variant="outline" onClick={() => setCreatingNew(true)}>
               <Plus className="size-4" /> New
@@ -251,21 +256,25 @@ function ConfigureStep({
 
       <div className="space-y-1.5">
         <Label htmlFor="content-type">Content type</Label>
-        <Select id="content-type" value={contentType} onChange={(e) => setContentType(e.target.value as ContentType)}>
-          <option value="reading">📖 Reading</option>
-          <option value="video">🎬 Video</option>
+        <Select value={contentType} onValueChange={(v) => setContentType(v as ContentType)}>
+          <SelectTrigger id="content-type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="reading">📖 Reading</SelectItem>
+            <SelectItem value="video">🎬 Video</SelectItem>
+          </SelectContent>
         </Select>
       </div>
 
       {candidate.kind === "reddit" && (
         <div className="space-y-1.5">
           <Label htmlFor="min-score">Minimum score (Reddit)</Label>
-          <Input
+          <NumberField
             id="min-score"
-            type="number"
-            min={0}
             value={minScore}
-            onChange={(e) => setMinScore(Math.max(0, Number(e.target.value) || 0))}
+            onChange={setMinScore}
+            min={0}
           />
         </div>
       )}
@@ -282,23 +291,17 @@ function ConfigureStep({
         <div className="space-y-4 rounded-md border border-border p-3">
           <div className="space-y-1.5">
             <Label htmlFor="interval">Fetch interval (minutes)</Label>
-            <Input
+            <NumberField
               id="interval"
-              type="number"
-              min={1}
               value={interval}
-              onChange={(e) => setInterval(Math.max(1, Number(e.target.value) || 60))}
+              onChange={setInterval}
+              min={1}
             />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="size-4 accent-primary"
-              checked={fullText}
-              onChange={(e) => setFullText(e.target.checked)}
-            />
-            Fetch full article text (readability)
-          </label>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="fulltext" className="text-sm font-normal">Fetch full article text (readability)</Label>
+            <Switch id="fulltext" checked={fullText} onCheckedChange={setFullText} />
+          </div>
         </div>
       )}
 

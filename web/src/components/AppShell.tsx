@@ -1,4 +1,4 @@
-import { LayoutGrid, FolderCog, Newspaper, HeartPulse, Settings, User as UserIcon, Users, Menu, LogOut, Moon, Sun, Plus, Search, RefreshCw } from "lucide-react";
+import { LayoutGrid, FolderCog, Newspaper, HeartPulse, Settings, User as UserIcon, Users, Menu, LogOut, Moon, Sun, Search, RefreshCw } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -15,45 +15,61 @@ interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  adminOnly?: boolean;
 }
 
-const NAV: NavItem[] = [
+const MAIN_NAV: NavItem[] = [
   { to: "/", label: "All items", icon: LayoutGrid },
-  { to: "/manage", label: "Manage categories & feeds", icon: FolderCog },
+  { to: "/manage", label: "Manage", icon: FolderCog },
   { to: "/digests", label: "Digests", icon: Newspaper },
   { to: "/health", label: "Feed health", icon: HeartPulse },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/profile", label: "Profile", icon: UserIcon },
-  { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
 ];
 
-function NavList({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate?: () => void }) {
+const ADMIN_NAV: NavItem[] = [
+  { to: "/admin/users", label: "Users", icon: Users },
+];
+
+function NavItemRow({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const unhealthy = useUnhealthyCount();
   return (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.to === "/"}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        cn(
+          "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+          isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )
+      }
+    >
+      <item.icon className="size-4" />
+      <span className="flex-1">{item.label}</span>
+      {item.to === "/health" && unhealthy > 0 && (
+        <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-xs font-semibold text-destructive-foreground">
+          {unhealthy}
+        </span>
+      )}
+    </NavLink>
+  );
+}
+
+function NavList({ isAdmin, onNavigate }: { isAdmin: boolean; onNavigate?: () => void }) {
+  return (
     <nav className="flex flex-col gap-1">
-      {NAV.filter((n) => !n.adminOnly || isAdmin).map((n) => (
-        <NavLink
-          key={n.to}
-          to={n.to}
-          end={n.to === "/"}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )
-          }
-        >
-          <n.icon className="size-4" />
-          <span className="flex-1">{n.label}</span>
-          {n.to === "/health" && unhealthy > 0 && (
-            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-xs font-semibold text-destructive-foreground">
-              {unhealthy}
-            </span>
-          )}
-        </NavLink>
+      {MAIN_NAV.map((n) => (
+        <NavItemRow key={n.to} item={n} onNavigate={onNavigate} />
       ))}
+      {isAdmin && (
+        <>
+          <p className="mt-4 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Admin</p>
+          {ADMIN_NAV.map((n) => (
+            <NavItemRow key={n.to} item={n} onNavigate={onNavigate} />
+          ))}
+        </>
+      )}
     </nav>
   );
 }
@@ -105,7 +121,6 @@ function ThemeToggle() {
 export function AppShell({ user }: { user: User }) {
   const drawerOpen = useUiStore((s) => s.drawerOpen);
   const setDrawerOpen = useUiStore((s) => s.setDrawerOpen);
-  const setAddFeedOpen = useUiStore((s) => s.setAddFeedOpen);
   const isAdmin = user.role === "admin";
   const navigate = useNavigate();
   const refreshAll = useRefreshAll();
@@ -127,7 +142,7 @@ export function AppShell({ user }: { user: User }) {
         <button
           type="button"
           onClick={() => navigate("/")}
-          className="flex items-center gap-2 text-lg font-bold tracking-tight"
+          className="flex items-center gap-2 font-display text-lg font-bold tracking-tight"
         >
           Digestly
           {unread > 0 && (
@@ -149,17 +164,13 @@ export function AppShell({ user }: { user: User }) {
           >
             <RefreshCw className={cn("size-5", refreshAll.isPending && "animate-spin")} />
           </Button>
-          <Button size="sm" onClick={() => setAddFeedOpen(true)}>
-            <Plus className="size-4" />
-            <span className="hidden sm:inline">Add feed</span>
-          </Button>
           <ThemeToggle />
         </div>
       </header>
 
       <div className="flex flex-1">
         {/* Persistent sidebar ≥ lg */}
-        <aside className="hidden w-64 shrink-0 flex-col gap-2 border-r border-border p-4 lg:flex">
+        <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-2 overflow-y-auto border-r border-border p-4 lg:flex">
           <NavList isAdmin={isAdmin} />
           <Footer user={user} />
         </aside>
@@ -167,7 +178,7 @@ export function AppShell({ user }: { user: User }) {
         {/* Mobile drawer */}
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetContent side="left" className="flex flex-col">
-            <span className="mb-4 text-lg font-bold">Digestly</span>
+            <span className="mb-4 font-display text-lg font-bold">Digestly</span>
             <NavList isAdmin={isAdmin} onNavigate={() => setDrawerOpen(false)} />
             <Footer user={user} />
           </SheetContent>

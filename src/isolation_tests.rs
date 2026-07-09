@@ -115,7 +115,7 @@ async fn admin_can_log_in_and_bad_password_is_rejected() {
 }
 
 #[tokio::test]
-async fn registration_seeds_six_categories_and_is_gated() {
+async fn registration_seeds_only_other_category_and_is_gated() {
     let (app, _pool, _d) = test_app().await;
 
     let alice = register(&app, "alice", "password123").await;
@@ -124,7 +124,7 @@ async fn registration_seeds_six_categories_and_is_gated() {
 
     let cats = call(&app, "GET", "/api/categories", None, Some(&cookie)).await;
     assert_eq!(cats.status, StatusCode::OK);
-    assert_eq!(cats.body.as_array().unwrap().len(), 6, "six seeded categories");
+    assert_eq!(cats.body.as_array().unwrap().len(), 1, "only Other category seeded");
     assert!(cats.body.as_array().unwrap().iter().any(|c| c["name"] == "Other"));
 
     // Disable registration as admin, then registration must 403.
@@ -162,9 +162,9 @@ async fn users_cannot_read_each_others_rows() {
     let alice_ids = ids(&alice_cats.body);
     let bob_ids = ids(&bob_cats.body);
 
-    // Each sees exactly their own six rows; the id sets are disjoint (no shared/leaked rows).
-    assert_eq!(alice_ids.len(), 6);
-    assert_eq!(bob_ids.len(), 6);
+    // Each sees exactly their own row; the id sets are disjoint (no shared/leaked rows).
+    assert_eq!(alice_ids.len(), 1);
+    assert_eq!(bob_ids.len(), 1);
     assert!(alice_ids.iter().all(|id| !bob_ids.contains(id)), "per-user rows must be disjoint");
 }
 
@@ -283,10 +283,10 @@ async fn subscribe_requires_a_valid_owned_category() {
     let bob_c = bob.cookie.unwrap();
 
     let bob_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
-    let bob_ai = cat_id(&bob_cats.body, "AI");
+    let bob_other = cat_id(&bob_cats.body, "Other");
 
     // A category id that isn't the caller's is rejected (no cross-user category use).
-    let cross = subscribe(&app, &alice_c, "https://ex.com/feed.xml", bob_ai).await;
+    let cross = subscribe(&app, &alice_c, "https://ex.com/feed.xml", bob_other).await;
     assert_eq!(cross.status, StatusCode::BAD_REQUEST, "adding without a valid own category is blocked");
 
     // A bogus id is rejected too.
@@ -299,6 +299,12 @@ async fn deleting_category_reassigns_feeds_to_other_and_other_is_protected() {
     let (app, _pool, _d) = test_app().await;
     let alice = register(&app, "alice", "password123").await;
     let alice_c = alice.cookie.unwrap();
+
+    // Only "Other" is seeded — insert a second category to test deletion + reassignment.
+    sqlx::query("INSERT INTO categories (user_id, name, position) VALUES ((SELECT id FROM users WHERE username = 'alice'), 'AI', 1)")
+        .execute(&_pool)
+        .await
+        .unwrap();
 
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
     let ai = cat_id(&cats.body, "AI");
@@ -334,8 +340,8 @@ async fn feeds_are_per_user_scoped_over_a_shared_catalog() {
     let bob_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
 
     // Both subscribe to the SAME feed URL — one shared global feed, two private subscriptions.
-    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&alice_cats.body, "AI")).await;
-    let b_sub = subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&bob_cats.body, "AI")).await;
+    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&alice_cats.body, "Other")).await;
+    let b_sub = subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&bob_cats.body, "Other")).await;
     assert_eq!(a_sub.status, StatusCode::OK);
     assert_eq!(b_sub.status, StatusCode::OK);
     assert_eq!(a_sub.body["feed_id"], b_sub.body["feed_id"], "polled once: shared feed row");
@@ -361,7 +367,7 @@ async fn feeds_are_per_user_scoped_over_a_shared_catalog() {
     assert_eq!(del.status, StatusCode::NOT_FOUND);
 
     // Duplicate subscription (same URL) is rejected for the same user.
-    let dup = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&alice_cats.body, "AI")).await;
+    let dup = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&alice_cats.body, "Other")).await;
     assert_eq!(dup.status, StatusCode::CONFLICT);
 }
 
@@ -423,8 +429,8 @@ async fn items_are_per_user_over_shared_content_with_independent_state() {
     let b_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
 
     // Both subscribe to the same shared feed (polled once).
-    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "AI")).await;
-    let b_sub = subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "AI")).await;
+    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "Other")).await;
+    let b_sub = subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "Other")).await;
     let feed_id = a_sub.body["feed_id"].as_i64().unwrap();
     assert_eq!(feed_id, b_sub.body["feed_id"].as_i64().unwrap(), "shared feed row");
 
@@ -474,7 +480,7 @@ async fn item_facets_sorts_and_search_work_end_to_end() {
     let alice = register(&app, "alice", "password123").await;
     let c = alice.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&c)).await;
-    let sub = subscribe(&app, &c, "https://ex.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let sub = subscribe(&app, &c, "https://ex.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
 
     let a = insert_item(&pool, feed_id, "g1", "Rust async runtime", "tokio internals", "2021-06-10 10:00:00", Some(100), Some(5), Some(600)).await;
@@ -524,6 +530,13 @@ async fn category_counts_reflect_active_facets() {
     let (app, pool, _d) = test_app().await;
     let alice = register(&app, "alice", "password123").await;
     let c = alice.cookie.unwrap();
+
+    // Only "Other" is seeded — insert categories needed for this multi-category test (§TODO-9).
+    let alice_id: i64 = alice.body["id"].as_i64().unwrap();
+    sqlx::query("INSERT INTO categories (user_id, name, position) VALUES (?, 'AI', 1)")
+        .bind(alice_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO categories (user_id, name, position) VALUES (?, 'Software Engineering', 2)")
+        .bind(alice_id).execute(&pool).await.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&c)).await;
     let ai = cat_id(&cats.body, "AI");
     let se = cat_id(&cats.body, "Software Engineering");
@@ -679,8 +692,8 @@ async fn summarize_reuses_shared_cache_across_users() {
     // Both users subscribe to the same shared feed; seed one item on it.
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
     let b_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
-    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "AI")).await;
-    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "AI")).await;
+    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "Other")).await;
+    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "Other")).await;
     let feed_id = a_sub.body["feed_id"].as_i64().unwrap();
     let item = insert_item(&pool, feed_id, "sg1", "A title", "some body text", "2021-06-10 10:00:00", None, None, None).await;
 
@@ -719,7 +732,7 @@ async fn summarize_without_provider_is_a_clear_error() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
     let item = insert_item(&pool, feed_id, "np1", "t", "body", "2021-06-10 10:00:00", None, None, None).await;
 
@@ -780,7 +793,7 @@ async fn feed_health_transition_is_detected_once_per_episode() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let sub = subscribe(&app, &alice_c, "https://health.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let sub = subscribe(&app, &alice_c, "https://health.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
 
     // First failure = healthy→failing transition → notify once.
@@ -812,18 +825,18 @@ async fn feed_health_recipients_are_deduped_and_scoped() {
     let d_cats = call(&app, "GET", "/api/categories", None, Some(&dave_c)).await;
 
     // Alice + Bob subscribe to the SAME shared feed and enable feed-health pushes.
-    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "AI")).await;
-    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "AI")).await;
+    let a_sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "Other")).await;
+    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "Other")).await;
     let feed_id = a_sub.body["feed_id"].as_i64().unwrap();
     set_ntfy(&app, &alice_c, "alice-topic", true).await;
     set_ntfy(&app, &bob_c, "bob-topic", true).await;
 
     // Carol subscribes to the same feed but turned feed-health OFF → excluded.
-    subscribe(&app, &carol_c, "https://shared.example/feed.xml", cat_id(&c_cats.body, "AI")).await;
+    subscribe(&app, &carol_c, "https://shared.example/feed.xml", cat_id(&c_cats.body, "Other")).await;
     set_ntfy(&app, &carol_c, "carol-topic", false).await;
 
     // Dave has feed-health ON but subscribes to a DIFFERENT feed → not a recipient (no leakage).
-    subscribe(&app, &dave_c, "https://other.example/feed.xml", cat_id(&d_cats.body, "AI")).await;
+    subscribe(&app, &dave_c, "https://other.example/feed.xml", cat_id(&d_cats.body, "Other")).await;
     set_ntfy(&app, &dave_c, "dave-topic", true).await;
 
     let mut recipients = crate::notify::feed_health_recipients(&pool, feed_id).await.unwrap();
@@ -851,7 +864,7 @@ async fn digest_run_is_admin_only_and_archived_per_user_with_raw_fallback() {
 
     // Alice subscribes and has recent items across two categories.
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let ai_sub = subscribe(&app, &alice_c, "https://ai.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let ai_sub = subscribe(&app, &alice_c, "https://ai.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = ai_sub.body["feed_id"].as_i64().unwrap();
     insert_recent_item(&pool, feed_id, "d1", "New model released").await;
     insert_recent_item(&pool, feed_id, "d2", "Framework 2.0 ships").await;
@@ -880,10 +893,10 @@ async fn digest_run_is_admin_only_and_archived_per_user_with_raw_fallback() {
     let payload = &detail.body["payload"];
     assert_eq!(payload["ai_used"], false, "no provider → no AI");
     assert!(payload["fallback_note"].as_str().unwrap().contains("no active provider"));
-    // The AI category section is present with raw headlines.
-    let ai_section = payload["categories"].as_array().unwrap().iter().find(|c| c["name"] == "AI").unwrap();
-    assert_eq!(ai_section["raw"], true);
-    assert_eq!(ai_section["items"].as_array().unwrap().len(), 2);
+    // The Other category section is present with raw headlines.
+    let other_section = payload["categories"].as_array().unwrap().iter().find(|c| c["name"] == "Other").unwrap();
+    assert_eq!(other_section["raw"], true);
+    assert_eq!(other_section["items"].as_array().unwrap().len(), 2);
 
     // Another user's digest is not visible (per-user scoping): 404 for a stranger.
     let bob_c = register(&app, "bob", "password123").await.cookie.unwrap();
@@ -896,7 +909,7 @@ async fn digest_run_accepts_a_custom_lookback_override() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let ai_sub = subscribe(&app, &alice_c, "https://ai.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let ai_sub = subscribe(&app, &alice_c, "https://ai.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = ai_sub.body["feed_id"].as_i64().unwrap();
 
     // One item from today, one from 10 days ago.
@@ -997,6 +1010,12 @@ async fn per_user_settings_round_trip_and_validate() {
 async fn opml_export_import_round_trips_losslessly_via_api() {
     let (app, _pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
+
+    // Only "Other" is seeded — insert "Software Engineering" for this OPML test (§TODO-9).
+    let alice_id: i64 = sqlx::query("SELECT id FROM users WHERE username = 'alice'")
+        .fetch_one(&_pool).await.unwrap().get("id");
+    sqlx::query("INSERT INTO categories (user_id, name, position) VALUES (?, 'Software Engineering', 1)")
+        .bind(alice_id).execute(&_pool).await.unwrap();
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
     subscribe(&app, &alice_c, "https://news.ycombinator.com/rss", cat_id(&a_cats.body, "Software Engineering")).await;
 
@@ -1039,7 +1058,7 @@ async fn retention_purge_removes_old_but_keeps_starred_forever() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
 
     let old_starred = insert_item(&pool, feed_id, "os", "Old Starred", "x", "2000-01-01 00:00:00", None, None, None).await;
@@ -1073,7 +1092,7 @@ async fn retention_purge_endpoint_is_admin_only_and_deletes_now() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "AI")).await;
+    let sub = subscribe(&app, &alice_c, "https://ex.example/feed.xml", cat_id(&cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
 
     let old_starred = insert_item(&pool, feed_id, "os", "Old Starred", "x", "2000-01-01 00:00:00", None, None, None).await;
@@ -1392,8 +1411,8 @@ async fn offline_replay_of_explicit_state_mutations_is_idempotent_and_converges(
     let bob_c = register(&app, "bob", "password123").await.cookie.unwrap();
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
     let b_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
-    let sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "AI")).await;
-    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "AI")).await;
+    let sub = subscribe(&app, &alice_c, "https://shared.example/feed.xml", cat_id(&a_cats.body, "Other")).await;
+    subscribe(&app, &bob_c, "https://shared.example/feed.xml", cat_id(&b_cats.body, "Other")).await;
     let feed_id = sub.body["feed_id"].as_i64().unwrap();
     let item = insert_item(&pool, feed_id, "g1", "Item", "body", "2021-06-15 12:00:00", None, None, Some(60)).await;
 
@@ -1471,7 +1490,7 @@ async fn oauth_reconcile_import_is_idempotent_and_per_user() {
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
     let alice_id = user_id_of(&pool, "alice").await;
     let bob_id = user_id_of(&pool, "bob").await;
-    let ai = cat_id(&a_cats.body, "AI");
+    let ai = cat_id(&a_cats.body, "Other");
     let cfg = IngestSettings::default();
 
     // A fixed "remote subscription list" (what fetch_subscriptions would return).
@@ -1506,7 +1525,7 @@ async fn oauth_reconcile_import_is_idempotent_and_per_user() {
     // Bob importing the same list is independent (per-user), and Bob starts empty.
     assert_eq!(call(&app, "GET", "/api/feeds", None, Some(&bob_c)).await.body.as_array().unwrap().len(), 0);
     let b_cats = call(&app, "GET", "/api/categories", None, Some(&bob_c)).await;
-    let bob_added = reconcile(&pool, &cfg, bob_id, cat_id(&b_cats.body, "AI"), &subs).await.unwrap();
+    let bob_added = reconcile(&pool, &cfg, bob_id, cat_id(&b_cats.body, "Other"), &subs).await.unwrap();
     assert_eq!(bob_added.added, 3, "bob's import is scoped to bob");
     assert_eq!(call(&app, "GET", "/api/feeds", None, Some(&alice_c)).await.body.as_array().unwrap().len(), 4,
         "bob's import didn't change alice");
@@ -1521,7 +1540,7 @@ async fn oauth_sync_creates_feeds_that_are_not_immediately_due() {
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let alice_id = user_id_of(&pool, "alice").await;
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let ai = cat_id(&a_cats.body, "AI");
+    let ai = cat_id(&a_cats.body, "Other");
     let cfg = IngestSettings::default();
 
     let subs = vec![youtube_subscription("UC_x5XG1OV2P6uZZ5FSM9Ttw", "Google Developers")];
@@ -1551,7 +1570,7 @@ async fn manual_add_feed_still_polls_immediately() {
     let (app, pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let a_cats = call(&app, "GET", "/api/categories", None, Some(&alice_c)).await;
-    let cat_id = cat_id(&a_cats.body, "AI");
+    let cat_id = cat_id(&a_cats.body, "Other");
 
     let resp = call(
         &app,

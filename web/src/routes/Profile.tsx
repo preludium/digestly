@@ -1,5 +1,7 @@
 import { useForm } from "@tanstack/react-form";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { FieldErrors } from "@/components/common/AuthCard";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +26,7 @@ export function Profile() {
   const changePassword = useChangePassword();
   const logoutAll = useLogoutEverywhere();
   const deleteAccount = useDeleteAccount();
+  const [deleting, setDeleting] = useState(false);
 
   const form = useForm({
     defaultValues: { current_password: "", new_password: "", confirm: "" },
@@ -42,7 +45,7 @@ export function Profile() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Profile</h1>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Profile</h1>
 
       <Card>
         <CardHeader>
@@ -53,95 +56,94 @@ export function Profile() {
             <p className="font-medium">{me.username}</p>
             <p className="text-sm text-muted-foreground">Signed in</p>
           </div>
-          <Badge variant={me.role === "admin" ? "default" : "secondary"}>{me.role}</Badge>
+          <Badge variant={me.role === "admin" ? "info" : "secondary"}>{me.role}</Badge>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Change password</CardTitle>
+          <CardTitle>Security</CardTitle>
         </CardHeader>
-        <CardContent>
-          {changePassword.isError && <div className="mb-4"><ErrorBanner error={changePassword.error} /></div>}
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              form.handleSubmit();
-            }}
-          >
-            <form.Field
-              name="current_password"
-              validators={{ onChange: ({ value }) => (value ? undefined : "Required") }}
-            >
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label htmlFor="current">Current password</Label>
-                  <Input id="current" type="password" autoComplete="current-password"
-                    value={field.state.value} onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)} />
-                  <FieldErrors errors={field.state.meta.errors} />
-                </div>
-              )}
-            </form.Field>
-            <form.Field
-              name="new_password"
-              validators={{ onChange: ({ value }) => (value.length >= 8 ? undefined : "At least 8 characters") }}
-            >
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label htmlFor="new">New password</Label>
-                  <Input id="new" type="password" autoComplete="new-password"
-                    value={field.state.value} onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)} />
-                  <FieldErrors errors={field.state.meta.errors} />
-                </div>
-              )}
-            </form.Field>
-            <form.Field
-              name="confirm"
-              validators={{
-                onChangeListenTo: ["new_password"],
-                onChange: ({ value, fieldApi }) =>
-                  value === fieldApi.form.getFieldValue("new_password") ? undefined : "Passwords do not match",
+        <CardContent className="space-y-6">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Password</p>
+            {changePassword.isError && <div className="mb-4"><ErrorBanner error={changePassword.error} /></div>}
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                form.handleSubmit();
               }}
             >
-              {(field) => (
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm">Confirm new password</Label>
-                  <Input id="confirm" type="password" autoComplete="new-password"
-                    value={field.state.value} onBlur={field.handleBlur}
-                    onChange={(e) => field.handleChange(e.target.value)} />
-                  <FieldErrors errors={field.state.meta.errors} />
-                </div>
-              )}
-            </form.Field>
-            <form.Subscribe selector={(s) => s.canSubmit}>
-              {(canSubmit) => (
-                <Button type="submit" disabled={!canSubmit || changePassword.isPending}>
-                  {changePassword.isPending ? "Saving…" : "Change password"}
-                </Button>
-              )}
-            </form.Subscribe>
-          </form>
+              <form.Field
+                name="current_password"
+                validators={{ onChange: ({ value }) => (value ? undefined : "Required") }}
+              >
+                {(field) => (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="current">Current password</Label>
+                    <Input id="current" type="password" autoComplete="current-password"
+                      value={field.state.value} onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)} />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </div>
+                )}
+              </form.Field>
+              <form.Field
+                name="new_password"
+                validators={{ onChange: ({ value }) => (value.length >= 8 ? undefined : "At least 8 characters") }}
+              >
+                {(field) => (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="new">New password</Label>
+                    <Input id="new" type="password" autoComplete="new-password"
+                      value={field.state.value} onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)} />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </div>
+                )}
+              </form.Field>
+              <form.Field
+                name="confirm"
+                validators={{
+                  onChangeListenTo: ["new_password"],
+                  onChange: ({ value, fieldApi }) =>
+                    value === fieldApi.form.getFieldValue("new_password") ? undefined : "Passwords do not match",
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirm">Confirm new password</Label>
+                    <Input id="confirm" type="password" autoComplete="new-password"
+                      value={field.state.value} onBlur={field.handleBlur}
+                      onChange={(e) => field.handleChange(e.target.value)} />
+                    <FieldErrors errors={field.state.meta.errors} />
+                  </div>
+                )}
+              </form.Field>
+              <form.Subscribe selector={(s) => s.canSubmit}>
+                {(canSubmit) => (
+                  <Button type="submit" disabled={!canSubmit || changePassword.isPending}>
+                    {changePassword.isPending ? "Saving…" : "Change password"}
+                  </Button>
+                )}
+              </form.Subscribe>
+            </form>
+          </div>
+          <div className="border-t border-border" />
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Passkeys</p>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Sign in without a password using Touch ID, Windows Hello, or a security key.
+            </p>
+            <PasskeyManager />
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Passkeys</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Sign in without a password using Touch ID, Windows Hello, or a security key.
-          </p>
-          <PasskeyManager />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Sessions</CardTitle>
+          <CardTitle className="text-destructive">Danger zone</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button
@@ -155,17 +157,25 @@ export function Profile() {
             <Button
               variant="destructive"
               disabled={deleteAccount.isPending}
-              onClick={() => {
-                if (confirm("Delete your account and all your data? This cannot be undone.")) {
-                  deleteAccount.mutate(undefined, { onSuccess: () => navigate("/login") });
-                }
-              }}
+              onClick={() => setDeleting(true)}
             >
               Delete my account
             </Button>
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title="Delete your account?"
+        description="This will permanently delete your account and all your data. This cannot be undone."
+        confirmLabel="Delete my account"
+        destructive
+        onConfirm={() => {
+          deleteAccount.mutate(undefined, { onSuccess: () => navigate("/login") });
+        }}
+      />
     </div>
   );
 }

@@ -27,7 +27,7 @@ export function Search() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Search</h1>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Search</h1>
 
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

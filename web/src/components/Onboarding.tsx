@@ -51,13 +51,13 @@ export function Onboarding() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 p-4">
       <div className="w-full max-w-md space-y-5 rounded-lg border border-border bg-card p-6 shadow-xl">
         <div>
-          <h1 className="text-xl font-bold">Welcome to Digestly 👋</h1>
+          <h1 className="font-display text-xl font-bold">Welcome to Digestly 👋</h1>
           <p className="text-sm text-muted-foreground">A couple of quick things — you can skip and change these later.</p>
         </div>
 
         <div className="space-y-2">
           <Label>Starter feeds</Label>
-          <p className="text-xs text-muted-foreground">Subscribe to a handful of popular tech feeds to get going.</p>
+          <p className="text-xs text-muted-foreground">Subscribe to a handful of popular tech feeds — topics are created for you. Or skip and build your own from scratch.</p>
           <Button variant="outline" size="sm" disabled={starter.isPending || addedStarter} onClick={addStarter}>
             {starter.isPending ? <Spinner className="size-4" /> : addedStarter ? <Check className="size-4" /> : <Rss className="size-4" />}
             {addedStarter ? "Added" : "Add starter feeds"}

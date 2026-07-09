@@ -13,7 +13,7 @@ export function Digests() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Digests</h1>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">Digests</h1>
 
       {digests.isLoading ? (
         <div className="flex justify-center py-10"><Spinner className="size-6" /></div>

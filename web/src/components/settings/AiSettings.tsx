@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Sparkles, Trash2, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -16,6 +16,7 @@ import {
   useTestProvider,
   useUpdateAiSettings,
 } from "@/hooks/useAi";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { toast } from "@/stores/toast";
 import type { AiProvider } from "@/lib/types";
 
@@ -68,6 +69,7 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
   const activate = useActivateProvider();
   const remove = useDeleteProvider();
   const test = useTestProvider();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const runTest = () =>
     test.mutate(provider.id, {
@@ -76,7 +78,6 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
     });
 
   const del = () => {
-    if (!window.confirm(`Delete provider “${provider.name}”? To rotate a key you delete and re-add.`)) return;
     remove.mutate(provider.id, {
       onSuccess: () => toast("Provider deleted"),
       onError: (e) => toast(e instanceof Error ? e.message : "Could not delete", "error"),
@@ -84,39 +85,57 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
   };
 
   return (
-    <li className="flex flex-col gap-3 rounded-md border border-border p-3 wide:flex-row wide:items-center">
-      <label className="flex items-start gap-3">
-        <input
-          type="radio"
-          name="active-provider"
-          className="mt-1 size-4 accent-primary"
-          checked={provider.is_active}
-          onChange={() => activate.mutate(provider.id)}
-          aria-label={`Make ${provider.name} the active provider`}
-        />
-        <span className="min-w-0">
-          <span className="flex items-center gap-2">
-            <span className="font-medium">{provider.name}</span>
-            {provider.is_active && <Badge>active</Badge>}
+    <>
+      <li className="flex flex-col gap-3 rounded-md border border-border p-3 wide:flex-row wide:items-center">
+        <label className="flex items-start gap-3">
+          <input
+            type="radio"
+            name="active-provider"
+            className="mt-1 size-4 accent-primary"
+            checked={provider.is_active}
+            onChange={() => activate.mutate(provider.id)}
+            aria-label={`Make ${provider.name} the active provider`}
+          />
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <span className="font-medium">{provider.name}</span>
+              {provider.is_active && <Badge>active</Badge>}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {provider.provider_type} · {provider.api_style === "anthropic" ? "Anthropic" : "OpenAI-compatible"} · {provider.model}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {provider.has_key ? "🔒 key saved · hidden" : "no key (local)"}
+            </span>
           </span>
-          <span className="block text-xs text-muted-foreground">
-            {provider.provider_type} · {provider.api_style === "anthropic" ? "Anthropic" : "OpenAI-compatible"} · {provider.model}
-          </span>
-          <span className="block text-xs text-muted-foreground">
-            {provider.has_key ? "🔒 key saved · hidden" : "no key (local)"}
-          </span>
-        </span>
-      </label>
+        </label>
 
-      <div className="flex items-center gap-2 wide:ml-auto">
-        <Button variant="outline" size="sm" disabled={test.isPending} onClick={runTest}>
-          {test.isPending ? <Spinner className="size-4" /> : <Wifi className="size-4" />} Test
-        </Button>
-        <Button variant="ghost" size="icon" aria-label="Delete provider" disabled={remove.isPending} onClick={del}>
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
-    </li>
+        <div className="flex items-center gap-2 wide:ml-auto">
+          <Button variant="outline" size="sm" disabled={test.isPending} onClick={runTest}>
+            {test.isPending ? <Spinner className="size-4" /> : <Wifi className="size-4" />} Test
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Delete provider"
+            disabled={remove.isPending}
+            onClick={() => setConfirmDelete(true)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </li>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete provider?"
+        description={`Delete "${provider.name}"? To rotate a key you delete and re-add.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={del}
+      />
+    </>
   );
 }
 
@@ -142,8 +161,6 @@ function GlobalParams() {
   if (settings.isLoading) return <div className="flex justify-center py-6"><Spinner className="size-6" /></div>;
   if (settings.isError) return <ErrorBanner error={settings.error} />;
 
-  const num = (v: string, min: number) => Math.max(min, Number(v) || 0);
-
   const save = () =>
     update.mutate(form, {
       onSuccess: () => toast("AI settings saved", "success"),
@@ -160,23 +177,27 @@ function GlobalParams() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <NumField label="Max tokens" value={form.max_tokens} onChange={(v) => setForm((f) => ({ ...f, max_tokens: num(v, 64) }))} />
+        <NumField label="Max tokens" value={form.max_tokens} onChange={(v) => setForm((f) => ({ ...f, max_tokens: v }))} min={64} />
         <NumField
           label="Temperature"
-          step="0.1"
+          step={0.1}
           value={form.temperature}
-          onChange={(v) => setForm((f) => ({ ...f, temperature: Math.min(2, Math.max(0, Number(v) || 0)) }))}
+          onChange={(v) => setForm((f) => ({ ...f, temperature: v }))}
+          min={0}
+          max={2}
         />
-        <NumField label="Timeout (seconds)" value={form.timeout_secs} onChange={(v) => setForm((f) => ({ ...f, timeout_secs: num(v, 5) }))} />
+        <NumField label="Timeout (seconds)" value={form.timeout_secs} onChange={(v) => setForm((f) => ({ ...f, timeout_secs: v }))} min={5} />
         <NumField
           label="Daily token budget (0 = unlimited)"
           value={form.daily_token_budget}
-          onChange={(v) => setForm((f) => ({ ...f, daily_token_budget: num(v, 0) }))}
+          onChange={(v) => setForm((f) => ({ ...f, daily_token_budget: v }))}
+          min={0}
         />
         <NumField
           label="Monthly token budget (0 = unlimited)"
           value={form.monthly_token_budget}
-          onChange={(v) => setForm((f) => ({ ...f, monthly_token_budget: num(v, 0) }))}
+          onChange={(v) => setForm((f) => ({ ...f, monthly_token_budget: v }))}
+          min={0}
         />
       </div>
 
@@ -193,17 +214,21 @@ function NumField({
   label,
   value,
   onChange,
+  min,
+  max,
   step,
 }: {
   label: string;
   value: number;
-  onChange: (v: string) => void;
-  step?: string;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input type="number" step={step} value={value} onChange={(e) => onChange(e.target.value)} />
+      <NumberField value={value} onChange={onChange} min={min} max={max} step={step} />
     </div>
   );
 }

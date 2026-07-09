@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NumberField } from "@/components/ui/number-field";
+import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
@@ -65,53 +67,72 @@ export function GeneralSettings() {
         <Field label="Theme">
           <Select
             value={form.theme}
-            onChange={(e) => {
-              const v = e.target.value as Form["theme"];
-              patch({ theme: v });
-              setTheme(v); // live preview
+            onValueChange={(v) => {
+              const val = v as Form["theme"];
+              patch({ theme: val });
+              setTheme(val); // live preview
             }}
           >
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dark">Dark</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
+            </SelectContent>
           </Select>
         </Field>
         <Field label="List density">
           <Select
             value={form.density}
-            onChange={(e) => {
-              const v = e.target.value as Form["density"];
-              patch({ density: v });
-              setDensity(v);
+            onValueChange={(v) => {
+              const val = v as Form["density"];
+              patch({ density: val });
+              setDensity(val);
             }}
           >
-            <option value="normal">Normal</option>
-            <option value="compact">Compact</option>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="compact">Compact</SelectItem>
+            </SelectContent>
           </Select>
         </Field>
         <Field label="Default sort">
-          <Select value={form.sort} onChange={(e) => patch({ sort: e.target.value as Form["sort"] })}>
-            <option value="new">Newest</option>
-            <option value="old">Oldest</option>
-            <option value="quick">Quickest read</option>
-            <option value="top">Most popular</option>
-            <option value="discussed">Most discussed</option>
-            <option value="unread">Unread first</option>
+          <Select value={form.sort} onValueChange={(v) => patch({ sort: v as Form["sort"] })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="new">Newest</SelectItem>
+              <SelectItem value="old">Oldest</SelectItem>
+              <SelectItem value="quick">Quickest read</SelectItem>
+              <SelectItem value="top">Most popular</SelectItem>
+              <SelectItem value="discussed">Most discussed</SelectItem>
+              <SelectItem value="unread">Unread first</SelectItem>
+            </SelectContent>
           </Select>
         </Field>
         <Field label="Default content view">
-          <Select value={form.content_view} onChange={(e) => patch({ content_view: e.target.value as Form["content_view"] })}>
-            <option value="all">All</option>
-            <option value="reading">Reading</option>
-            <option value="video">Videos</option>
+          <Select value={form.content_view} onValueChange={(v) => patch({ content_view: v as Form["content_view"] })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="reading">Reading</SelectItem>
+              <SelectItem value="video">Videos</SelectItem>
+            </SelectContent>
           </Select>
         </Field>
         <Field label="Page size">
-          <Input
-            type="number"
+          <NumberField
+            value={form.page_size}
+            onChange={(v) => patch({ page_size: v })}
             min={1}
             max={100}
-            value={form.page_size}
-            onChange={(e) => patch({ page_size: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
           />
         </Field>
         <Field label="Timezone (IANA)">
@@ -120,11 +141,9 @@ export function GeneralSettings() {
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 accent-primary"
+        <Switch
           checked={form.auto_mark_read}
-          onChange={(e) => patch({ auto_mark_read: e.target.checked })}
+          onCheckedChange={(v) => patch({ auto_mark_read: v })}
         />
         Mark items read when leaving the feed page
       </label>

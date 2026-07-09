@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { FolderPlus, Pencil, Plus, RefreshCw, Rss, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Plus, RefreshCw, Rss, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { NameDialog } from "@/components/common/NameDialog";
 import { FeedEditModal } from "@/components/feeds/FeedEditModal";
 import { useCategories, useCreateCategory, useDeleteCategory, useUpdateCategory } from "@/hooks/useCategories";
 import { useFeeds, useRefreshFeed, useUnsubscribe } from "@/hooks/useFeeds";
@@ -15,6 +18,7 @@ import { kindIcon, kindLabel } from "@/lib/format";
 import type { Category, Feed } from "@/lib/types";
 import { useUiStore } from "@/stores/ui";
 import { toast } from "@/stores/toast";
+import { sortCategoriesOtherLast } from "./manage.helpers";
 
 /** Manage categories & feeds — the structural hub (prompt.md §9.5). */
 export function Manage() {
@@ -25,6 +29,7 @@ export function Manage() {
   const [categoryFilter, setCategoryFilter] = useState<number | "all">("all");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Feed | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const createCategory = useCreateCategory();
 
@@ -37,9 +42,7 @@ export function Manage() {
       feeds: g.feeds.filter((f) => f.title.toLowerCase().includes(search.trim().toLowerCase())),
     }));
 
-  const newCategory = () => {
-    const name = window.prompt("New category name")?.trim();
-    if (!name) return;
+  const handleCreateCategory = (name: string) => {
     createCategory.mutate(name, {
       onSuccess: () => toast("Category created", "success"),
       onError: (e) => toast(e instanceof Error ? e.message : "Could not create", "error"),
@@ -53,13 +56,13 @@ export function Manage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Manage feeds</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Manage</h1>
         <div className="flex gap-2">
           <Button onClick={() => openAddFeed(true)}>
             <Plus className="size-4" /> Add feed
           </Button>
-          <Button variant="outline" onClick={newCategory}>
-            <FolderPlus className="size-4" /> New category
+          <Button variant="outline" onClick={() => setCreating(true)}>
+            <Plus className="size-4" /> New category
           </Button>
         </div>
       </div>
@@ -67,16 +70,20 @@ export function Manage() {
       {!noFeeds && (
         <div className="flex flex-wrap gap-3">
           <Select
-            className="max-w-xs"
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value === "all" ? "all" : Number(e.target.value))}
+            value={String(categoryFilter)}
+            onValueChange={(v) => setCategoryFilter(v === "all" ? "all" : Number(v))}
           >
-            <option value="all">All categories</option>
-            {categories.data?.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.feed_count})
-              </option>
-            ))}
+            <SelectTrigger className="max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categories.data?.map((c) => (
+                <SelectItem key={c.id} value={String(c.id)}>
+                  {c.name} ({c.feed_count})
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <Input
             className="max-w-xs"
@@ -118,12 +125,21 @@ export function Manage() {
         ))}
 
       <FeedEditModal feed={editing} onClose={() => setEditing(null)} />
+
+      <NameDialog
+        open={creating}
+        onOpenChange={setCreating}
+        title="New category"
+        label="Name"
+        submitLabel="Create"
+        onSubmit={handleCreateCategory}
+      />
     </div>
   );
 }
 
 function groupByCategory(categories: Category[], feeds: Feed[]) {
-  return categories.map((category) => ({
+  return sortCategoriesOtherLast(categories).map((category) => ({
     category,
     feeds: feeds.filter((f) => f.category_id === category.id),
   }));
@@ -142,9 +158,10 @@ function CategoryCard({
   const del = useDeleteCategory();
   const openAddFeed = useUiStore((s) => s.setAddFeedOpen);
 
-  const doRename = () => {
-    const name = window.prompt("Rename category", category.name)?.trim();
-    if (!name || name === category.name) return;
+  const [renaming, setRenaming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleRename = (name: string) => {
     rename.mutate(
       { id: category.id, name },
       {
@@ -154,8 +171,7 @@ function CategoryCard({
     );
   };
 
-  const doDelete = () => {
-    if (!confirm(`Delete "${category.name}"? Its feeds move to Other.`)) return;
+  const handleDelete = () => {
     del.mutate(category.id, {
       onSuccess: () => toast("Category deleted; feeds moved to Other", "success"),
       onError: (e) => toast(e instanceof Error ? e.message : "Could not delete", "error"),
@@ -163,46 +179,73 @@ function CategoryCard({
   };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-lg font-semibold">{category.name}</h2>
-          <span className="text-sm text-muted-foreground">{feeds.length}</span>
-        </div>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="sm" onClick={() => openAddFeed(true)}>
-            <Plus className="size-4" />
-          </Button>
-          {category.deletable && (
-            <Button variant="ghost" size="sm" onClick={doRename} aria-label="Rename">
-              <Pencil className="size-4" />
+    <Collapsible defaultOpen>
+      <Card>
+        <div className="flex flex-row items-center justify-between gap-2 p-6 pb-0">
+          <CollapsibleTrigger className="flex items-center gap-2 rounded-md hover:bg-muted/50 -ml-1 px-1 py-0.5">
+            <ChevronDown className="size-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-lg font-semibold">{category.name}</h2>
+              <span className="text-sm text-muted-foreground">{feeds.length}</span>
+            </div>
+          </CollapsibleTrigger>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => openAddFeed(true)}>
+              <Plus className="size-4" />
             </Button>
-          )}
-          {category.deletable && (
-            <Button variant="ghost" size="sm" onClick={doDelete} aria-label="Delete category">
-              <Trash2 className="size-4" />
-            </Button>
-          )}
+            {category.deletable && (
+              <Button variant="ghost" size="sm" onClick={() => setRenaming(true)} aria-label="Rename">
+                <Pencil className="size-4" />
+              </Button>
+            )}
+            {category.deletable && (
+              <Button variant="ghost" size="sm" onClick={() => setDeleting(true)} aria-label="Delete category">
+                <Trash2 className="size-4" />
+              </Button>
+            )}
+          </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        {feeds.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No feeds in this category.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {feeds.map((f) => (
-              <FeedRow key={f.id} feed={f} onEdit={onEdit} />
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+        <CollapsibleContent>
+          <CardContent>
+            {feeds.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No feeds in this category.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {feeds.map((f) => (
+                  <FeedRow key={f.id} feed={f} onEdit={onEdit} />
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+      <NameDialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename category"
+        label="Name"
+        initialValue={category.name}
+        submitLabel="Rename"
+        onSubmit={handleRename}
+      />
+      <ConfirmDialog
+        open={deleting}
+        onOpenChange={setDeleting}
+        title={`Delete "${category.name}"?`}
+        description="Its feeds move to Other."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={handleDelete}
+      />
+    </Collapsible>
   );
 }
 
 function FeedRow({ feed, onEdit }: { feed: Feed; onEdit: (f: Feed) => void }) {
   const refresh = useRefreshFeed();
   const unsubscribe = useUnsubscribe();
+
+  const [unsubscribing, setUnsubscribing] = useState(false);
 
   const meta = [
     kindLabel(feed.kind),
@@ -236,15 +279,21 @@ function FeedRow({ feed, onEdit }: { feed: Feed; onEdit: (f: Feed) => void }) {
           variant="ghost"
           size="icon"
           aria-label="Unsubscribe"
-          onClick={() => {
-            if (confirm(`Unsubscribe from "${feed.title}"?`)) {
-              unsubscribe.mutate(feed.id, { onSuccess: () => toast("Unsubscribed", "success") });
-            }
-          }}
+          onClick={() => setUnsubscribing(true)}
         >
           <Trash2 className="size-4" />
         </Button>
       </div>
+      <ConfirmDialog
+        open={unsubscribing}
+        onOpenChange={setUnsubscribing}
+        title={`Unsubscribe from "${feed.title}"?`}
+        confirmLabel="Unsubscribe"
+        destructive
+        onConfirm={() => {
+          unsubscribe.mutate(feed.id, { onSuccess: () => toast("Unsubscribed", "success") });
+        }}
+      />
     </li>
   );
 }

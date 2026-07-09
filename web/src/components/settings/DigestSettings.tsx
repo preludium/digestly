@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberField } from "@/components/ui/number-field";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useDigestConfig, useRunDigest, useUpdateDigestConfig } from "@/hooks/useDigest";
 import { useCategories } from "@/hooks/useCategories";
 import { toast } from "@/stores/toast";
@@ -17,7 +20,9 @@ export function DigestSettings() {
   const update = useUpdateDigestConfig();
   const run = useRunDigest();
   const categories = useCategories();
-  const [runLookbackDays, setRunLookbackDays] = useState("");
+  const [runLookbackDays, setRunLookbackDays] = useState<number | null>(null);
+  const [confirmRun, setConfirmRun] = useState(false);
+  const [runOverride, setRunOverride] = useState<number | undefined>(undefined);
 
   const [form, setForm] = useState<PutDigestConfig>({
     enabled: true,
@@ -58,11 +63,13 @@ export function DigestSettings() {
     });
 
   const runNow = () => {
-    const trimmed = runLookbackDays.trim();
-    const override = trimmed === "" ? undefined : Math.min(90, Math.max(1, Number(trimmed) || 1));
-    const label = override ? `the last ${override} day${override === 1 ? "" : "s"}` : "the configured look-back window";
-    if (!window.confirm(`Run the digest now for every user, using ${label}?`)) return;
-    run.mutate(override, {
+    const override = runLookbackDays == null ? undefined : Math.min(90, Math.max(1, runLookbackDays));
+    setRunOverride(override);
+    setConfirmRun(true);
+  };
+
+  const doRun = () => {
+    run.mutate(runOverride, {
       onSuccess: (s) => toast(`Digest ran — ${s.digests} generated, ${s.pushed} pushed`, "success"),
       onError: (e) => toast(e instanceof Error ? e.message : "Digest run failed", "error"),
     });
@@ -78,7 +85,7 @@ export function DigestSettings() {
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" className="size-4 accent-primary" checked={form.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
+        <Switch checked={form.enabled} onCheckedChange={(v) => patch({ enabled: v })} />
         Enable scheduled digests
       </label>
 
@@ -94,19 +101,18 @@ export function DigestSettings() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="lookback">Look-back window (days)</Label>
-          <Input
+          <NumberField
             id="lookback"
-            type="number"
+            value={form.lookback_days}
+            onChange={(v) => patch({ lookback_days: v })}
             min={1}
             max={90}
-            value={form.lookback_days}
-            onChange={(e) => patch({ lookback_days: Math.min(90, Math.max(1, Number(e.target.value) || 1)) })}
           />
         </div>
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" className="size-4 accent-primary" checked={form.ai_enabled} onChange={(e) => patch({ ai_enabled: e.target.checked })} />
+        <Switch checked={form.ai_enabled} onCheckedChange={(v) => patch({ ai_enabled: v })} />
         Summarize with AI (off → raw grouped titles)
       </label>
 
@@ -129,14 +135,12 @@ export function DigestSettings() {
             <Label htmlFor="run-lookback" className="text-xs text-muted-foreground">
               Custom look-back for this run (days, optional)
             </Label>
-            <Input
+            <NumberField
               id="run-lookback"
-              type="number"
+              value={runLookbackDays ?? form.lookback_days}
+              onChange={(v) => setRunLookbackDays(v)}
               min={1}
               max={90}
-              placeholder={String(form.lookback_days)}
-              value={runLookbackDays}
-              onChange={(e) => setRunLookbackDays(e.target.value)}
               className="w-24"
             />
           </div>
@@ -148,6 +152,15 @@ export function DigestSettings() {
           {update.isPending ? "Saving…" : "Save settings"}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmRun}
+        onOpenChange={setConfirmRun}
+        title="Run digest now?"
+        description={`Run the digest now for every user, using ${runOverride ? `the last ${runOverride} day${runOverride === 1 ? "" : "s"}` : "the configured look-back window"}?`}
+        confirmLabel="Run digest"
+        onConfirm={doRun}
+      />
     </div>
   );
 }

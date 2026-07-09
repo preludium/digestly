@@ -3,7 +3,8 @@ import { Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { useNotifications, useTestNotification, useUpdateNotifications } from "@/hooks/useNotifications";
@@ -131,15 +132,19 @@ export function NotificationsSettings() {
         <div className="space-y-1.5">
           <Label htmlFor="ntfy-priority">Priority</Label>
           <Select
-            id="ntfy-priority"
             value={String(form.ntfy_priority)}
-            onChange={(e) => patch({ ntfy_priority: Number(e.target.value) })}
+            onValueChange={(v) => patch({ ntfy_priority: Number(v) })}
           >
-            <option value="1">Min (1)</option>
-            <option value="2">Low (2)</option>
-            <option value="3">Default (3)</option>
-            <option value="4">High (4)</option>
-            <option value="5">Max (5)</option>
+            <SelectTrigger id="ntfy-priority">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Min (1)</SelectItem>
+              <SelectItem value="2">Low (2)</SelectItem>
+              <SelectItem value="3">Default (3)</SelectItem>
+              <SelectItem value="4">High (4)</SelectItem>
+              <SelectItem value="5">Max (5)</SelectItem>
+            </SelectContent>
           </Select>
         </div>
       </div>
@@ -147,20 +152,16 @@ export function NotificationsSettings() {
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Notify me…</legend>
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
+          <Switch
             checked={form.notify_on_digest}
-            onChange={(e) => patch({ notify_on_digest: e.target.checked })}
+            onCheckedChange={(v) => patch({ notify_on_digest: v })}
           />
           After each digest
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
+          <Switch
             checked={form.notify_on_feed_health}
-            onChange={(e) => patch({ notify_on_feed_health: e.target.checked })}
+            onCheckedChange={(v) => patch({ notify_on_feed_health: v })}
           />
           On feed health issues
         </label>
