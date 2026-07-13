@@ -41,5 +41,6 @@ ENV DATA_DIR=/data \
     RUST_LOG=info,digestly=debug
 EXPOSE 8080
 VOLUME ["/data"]
+LABEL org.opencontainers.image.source=https://github.com/preludium/digestly
 # SIGTERM is delivered directly to the binary (PID 1) for graceful shutdown.
 ENTRYPOINT ["/usr/local/bin/digestly"]
