@@ -82,18 +82,30 @@ async fn main() -> Result<()> {
     // scheduler for refresh-now / new subscriptions.
     let http_client = ingest::fetch::build_client();
     let ingest_trigger: ingest::IngestTrigger = Arc::new(Notify::new());
+    // Notified by the scheduler whenever a YouTube feed poll stores new items, so the background
+    // transcript worker fetches captions shortly after ingest instead of on its own idle tick.
+    let new_video_trigger: ai::transcript_worker::TranscriptTrigger = Arc::new(Notify::new());
     // The scheduler gets the AEAD key so it can decrypt per-user ntfy tokens for the throttled
     // feed-health notifications it fires on healthy→failing/disabled transitions (§7a, §11).
-    let scheduler = ingest::spawn(pool.clone(), http_client.clone(), enc_key, ingest_trigger.clone());
+    let scheduler = ingest::spawn(
+        pool.clone(),
+        http_client.clone(),
+        enc_key,
+        cfg.reddit_oauth.clone(),
+        ingest_trigger.clone(),
+        new_video_trigger.clone(),
+    );
+    let transcript_worker =
+        ai::transcript_worker::spawn(pool.clone(), http_client.clone(), new_video_trigger);
 
     // Digest engine (§7): a global cron drives per-user, category-grouped, AI-summarized digests
     // pushed to each user's ntfy channel. Admins can also trigger it via POST /api/digest/run.
     let digest_scheduler = digest::spawn(pool.clone(), http_client.clone(), enc_key);
 
-    // Periodic retention purge (§5, §8, §11) — keeps the SQLite file small; starred items survive.
+    // Periodic retention purge (§5, §8, §11) - keeps the SQLite file small; starred items survive.
     let maintenance = maintenance::spawn(pool.clone());
 
-    // Passkeys / WebAuthn (S1): build the Relying Party from RP_ID/RP_ORIGIN. Never fatal — if the
+    // Passkeys / WebAuthn (S1): build the Relying Party from RP_ID/RP_ORIGIN. Never fatal - if the
     // origin is unparseable the app still boots and passkey endpoints report "not enabled".
     let webauthn = auth::passkey::build(&cfg.rp_id, &cfg.rp_origin, &cfg.rp_extra_origins);
 
@@ -132,6 +144,7 @@ async fn main() -> Result<()> {
         .context("server error")?;
 
     scheduler.abort();
+    transcript_worker.abort();
     digest_scheduler.abort();
     maintenance.abort();
 

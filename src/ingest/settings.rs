@@ -3,7 +3,7 @@
 
 use sqlx::{Row, SqlitePool};
 
-/// Descriptive UA — Reddit blocks generic/empty agents (prompt.md §3).
+/// Descriptive UA - Reddit blocks generic/empty agents (prompt.md §3).
 pub const USER_AGENT: &str =
     "Digestly/0.1 (+https://github.com/digestly/digestly; self-hosted feed reader)";
 
@@ -25,6 +25,9 @@ pub struct IngestSettings {
     pub body_cap_bytes: usize,
     /// Max stored item content length, in chars (giant-item guard).
     pub item_content_cap: usize,
+    /// Items published earlier than this many days ago are skipped at ingest time - never
+    /// inserted, regardless of what the source feed still lists (0 = no cutoff, ingest everything).
+    pub max_item_age_days: i64,
 }
 
 impl Default for IngestSettings {
@@ -33,10 +36,11 @@ impl Default for IngestSettings {
             concurrency: 8,
             per_host_delay_ms: 1500,
             timeout_secs: 20,
-            default_interval_secs: 3600,
+            default_interval_secs: 86400,
             allow_private: false,
             body_cap_bytes: 5 * 1024 * 1024,
             item_content_cap: 200_000,
+            max_item_age_days: 1,
         }
     }
 }
@@ -46,13 +50,32 @@ impl IngestSettings {
     pub async fn load(pool: &SqlitePool) -> Self {
         let d = IngestSettings::default();
         Self {
-            concurrency: get_int(pool, "ingest.concurrency", d.concurrency as i64).await.max(1) as usize,
-            per_host_delay_ms: get_int(pool, "ingest.per_host_delay_ms", d.per_host_delay_ms as i64).await.max(0) as u64,
-            timeout_secs: get_int(pool, "ingest.timeout_secs", d.timeout_secs as i64).await.clamp(1, 120) as u64,
-            default_interval_secs: get_int(pool, "ingest.default_interval_secs", d.default_interval_secs).await.max(60),
+            concurrency: get_int(pool, "ingest.concurrency", d.concurrency as i64)
+                .await
+                .max(1) as usize,
+            per_host_delay_ms: get_int(pool, "ingest.per_host_delay_ms", d.per_host_delay_ms as i64)
+                .await
+                .max(0) as u64,
+            timeout_secs: get_int(pool, "ingest.timeout_secs", d.timeout_secs as i64)
+                .await
+                .clamp(1, 120) as u64,
+            default_interval_secs: get_int(
+                pool,
+                "ingest.default_interval_secs",
+                d.default_interval_secs,
+            )
+            .await
+            .max(60),
             allow_private: get_bool(pool, "ingest.allow_private", d.allow_private).await,
-            body_cap_bytes: get_int(pool, "ingest.body_cap_bytes", d.body_cap_bytes as i64).await.max(4096) as usize,
-            item_content_cap: get_int(pool, "ingest.item_content_cap", d.item_content_cap as i64).await.max(1000) as usize,
+            body_cap_bytes: get_int(pool, "ingest.body_cap_bytes", d.body_cap_bytes as i64)
+                .await
+                .max(4096) as usize,
+            item_content_cap: get_int(pool, "ingest.item_content_cap", d.item_content_cap as i64)
+                .await
+                .max(1000) as usize,
+            max_item_age_days: get_int(pool, "ingest.max_item_age_days", d.max_item_age_days)
+                .await
+                .max(0),
         }
     }
 }
@@ -68,9 +91,15 @@ async fn get_str(pool: &SqlitePool, key: &str) -> Option<String> {
 }
 
 async fn get_int(pool: &SqlitePool, key: &str, default: i64) -> i64 {
-    get_str(pool, key).await.and_then(|v| v.parse().ok()).unwrap_or(default)
+    get_str(pool, key)
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 async fn get_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
-    get_str(pool, key).await.map(|v| v == "true" || v == "1").unwrap_or(default)
+    get_str(pool, key)
+        .await
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(default)
 }

@@ -16,7 +16,10 @@ use crate::http::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/admin/users", get(list_users))
-        .route("/admin/users/:id", axum::routing::patch(update_user).delete(delete_user))
+        .route(
+            "/admin/users/:id",
+            axum::routing::patch(update_user).delete(delete_user),
+        )
         .route("/admin/settings", get(get_settings).put(put_settings))
         .route("/admin/ingestion", get(get_ingestion).put(put_ingestion))
         .route("/admin/retention/purge", post(purge_now))
@@ -33,8 +36,11 @@ struct AdminUserDto {
     subscription_count: i64,
 }
 
-/// `GET /api/admin/users` — all accounts with subscription counts (account data only, no feeds).
-async fn list_users(_admin: AdminUser, State(state): State<AppState>) -> ApiResult<Json<Vec<AdminUserDto>>> {
+/// `GET /api/admin/users` - all accounts with subscription counts (account data only, no feeds).
+async fn list_users(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<AdminUserDto>>> {
     let rows = sqlx::query(
         "SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at,
                 (SELECT COUNT(*) FROM subscriptions s WHERE s.user_id = u.id) AS sub_count
@@ -65,7 +71,7 @@ struct UpdateUser {
     disabled: Option<bool>,
 }
 
-/// `PATCH /api/admin/users/{id}` — change role and/or enabled state, with guardrails.
+/// `PATCH /api/admin/users/{id}` - change role and/or enabled state, with guardrails.
 async fn update_user(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -105,7 +111,7 @@ async fn update_user(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `DELETE /api/admin/users/{id}` — delete an account (cascades per-user data), with guardrails.
+/// `DELETE /api/admin/users/{id}` - delete an account (cascades per-user data), with guardrails.
 async fn delete_user(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -115,7 +121,9 @@ async fn delete_user(
     if target.username == ADMIN_USERNAME {
         return Err(AppError::Forbidden);
     }
-    if target.role == Role::Admin && !target.disabled && enabled_admin_count(&state.pool).await? <= 1
+    if target.role == Role::Admin
+        && !target.disabled
+        && enabled_admin_count(&state.pool).await? <= 1
     {
         return Err(AppError::Conflict("cannot remove the last admin".into()));
     }
@@ -131,14 +139,17 @@ struct SettingsDto {
     allow_registration: bool,
 }
 
-/// `GET /api/admin/settings` — global admin settings.
-async fn get_settings(_admin: AdminUser, State(state): State<AppState>) -> ApiResult<Json<SettingsDto>> {
+/// `GET /api/admin/settings` - global admin settings.
+async fn get_settings(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<SettingsDto>> {
     Ok(Json(SettingsDto {
         allow_registration: crate::routes::auth::allow_registration(&state.pool).await?,
     }))
 }
 
-/// `PUT /api/admin/settings` — update global admin settings.
+/// `PUT /api/admin/settings` - update global admin settings.
 async fn put_settings(
     _admin: AdminUser,
     State(state): State<AppState>,
@@ -148,7 +159,11 @@ async fn put_settings(
         "INSERT INTO app_settings (key, value) VALUES ('allow_registration', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
-    .bind(if body.allow_registration { "true" } else { "false" })
+    .bind(if body.allow_registration {
+        "true"
+    } else {
+        "false"
+    })
     .execute(&state.pool)
     .await?;
     Ok(Json(body))
@@ -165,14 +180,20 @@ struct IngestionDto {
     timeout_secs: i64,
     default_interval_secs: i64,
     allow_private: bool,
+    /// Items published earlier than N days ago are skipped at ingest time (0 = no cutoff).
+    #[serde(default)]
+    max_item_age_days: i64,
     /// Purge non-starred items older than N days (0 = keep forever).
     retention_max_age_days: i64,
     /// Keep at most M newest non-starred items per feed (0 = unlimited).
     retention_max_per_feed: i64,
 }
 
-/// `GET /api/admin/ingestion` — the effective ingestion + retention tunables.
-async fn get_ingestion(_admin: AdminUser, State(state): State<AppState>) -> ApiResult<Json<IngestionDto>> {
+/// `GET /api/admin/ingestion` - the effective ingestion + retention tunables.
+async fn get_ingestion(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<IngestionDto>> {
     let cfg = crate::ingest::settings::IngestSettings::load(&state.pool).await;
     let ret = crate::maintenance::RetentionPolicy::load(&state.pool).await;
     Ok(Json(IngestionDto {
@@ -181,20 +202,66 @@ async fn get_ingestion(_admin: AdminUser, State(state): State<AppState>) -> ApiR
         timeout_secs: cfg.timeout_secs as i64,
         default_interval_secs: cfg.default_interval_secs,
         allow_private: cfg.allow_private,
+        max_item_age_days: cfg.max_item_age_days,
         retention_max_age_days: ret.max_age_days,
         retention_max_per_feed: ret.max_per_feed,
     }))
 }
 
-/// `PUT /api/admin/ingestion` — persist the tunables (clamped to sane ranges).
-async fn put_ingestion(_admin: AdminUser, State(state): State<AppState>, Json(b): Json<IngestionDto>) -> ApiResult<Json<IngestionDto>> {
-    set_app(&state.pool, "ingest.concurrency", &b.concurrency.clamp(1, 64).to_string()).await?;
-    set_app(&state.pool, "ingest.per_host_delay_ms", &b.per_host_delay_ms.clamp(0, 60_000).to_string()).await?;
-    set_app(&state.pool, "ingest.timeout_secs", &b.timeout_secs.clamp(1, 120).to_string()).await?;
-    set_app(&state.pool, "ingest.default_interval_secs", &b.default_interval_secs.clamp(60, 86_400).to_string()).await?;
-    set_app(&state.pool, "ingest.allow_private", if b.allow_private { "true" } else { "false" }).await?;
-    set_app(&state.pool, "retention.max_age_days", &b.retention_max_age_days.max(0).to_string()).await?;
-    set_app(&state.pool, "retention.max_per_feed", &b.retention_max_per_feed.max(0).to_string()).await?;
+/// `PUT /api/admin/ingestion` - persist the tunables (clamped to sane ranges).
+async fn put_ingestion(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(b): Json<IngestionDto>,
+) -> ApiResult<Json<IngestionDto>> {
+    set_app(
+        &state.pool,
+        "ingest.concurrency",
+        &b.concurrency.clamp(1, 64).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "ingest.per_host_delay_ms",
+        &b.per_host_delay_ms.clamp(0, 60_000).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "ingest.timeout_secs",
+        &b.timeout_secs.clamp(1, 120).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "ingest.default_interval_secs",
+        &b.default_interval_secs.clamp(60, 86_400).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "ingest.allow_private",
+        if b.allow_private { "true" } else { "false" },
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "ingest.max_item_age_days",
+        &b.max_item_age_days.max(0).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "retention.max_age_days",
+        &b.retention_max_age_days.max(0).to_string(),
+    )
+    .await?;
+    set_app(
+        &state.pool,
+        "retention.max_per_feed",
+        &b.retention_max_per_feed.max(0).to_string(),
+    )
+    .await?;
     get_ingestion(_admin, State(state)).await
 }
 
@@ -203,11 +270,16 @@ struct PurgeResult {
     removed: u64,
 }
 
-/// `POST /api/admin/retention/purge` — apply the saved retention policy right now instead of
+/// `POST /api/admin/retention/purge` - apply the saved retention policy right now instead of
 /// waiting for the periodic 6h maintenance task (§8). Uses the exact same purge logic; starred
 /// items are always kept.
-async fn purge_now(_admin: AdminUser, State(state): State<AppState>) -> ApiResult<Json<PurgeResult>> {
-    let removed = crate::maintenance::purge(&state.pool).await.map_err(AppError::Internal)?;
+async fn purge_now(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<PurgeResult>> {
+    let removed = crate::maintenance::purge(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
     Ok(Json(PurgeResult { removed }))
 }
 

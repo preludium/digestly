@@ -24,11 +24,7 @@ pub fn sanitize_html(raw: &str, base: Option<&str>, cap: usize) -> String {
 /// Extract readable plain text from (already sanitized) HTML for FTS + AI + reading time.
 pub fn to_text(html: &str, cap: usize) -> String {
     let fragment = Html::parse_fragment(html);
-    let mut text = fragment
-        .root_element()
-        .text()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let mut text = fragment.root_element().text().collect::<Vec<_>>().join(" ");
     text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if text.chars().count() > cap {
         text = text.chars().take(cap).collect();
@@ -59,7 +55,7 @@ pub fn reading_time_secs(text: &str) -> i64 {
 
 /// Best-effort readability extraction of an article's main content (prompt.md §5 full-text
 /// toggle). Returns sanitized HTML of the densest content block, or `None` to fall back to the
-/// feed's own content. Never gates ingestion — callers treat failure as "use feed content".
+/// feed's own content. Never gates ingestion - callers treat failure as "use feed content".
 pub fn extract_readable(page_html: &str, base: &str, cap: usize) -> Option<String> {
     let doc = Html::parse_document(page_html);
     // Prefer semantic containers, then the block with the most paragraph text.

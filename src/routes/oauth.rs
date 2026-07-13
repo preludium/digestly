@@ -1,4 +1,4 @@
-//! OAuth import endpoints (prompt.md §3, §9.7 — Stretch S4). Per-user: link a YouTube/Reddit
+//! OAuth import endpoints (prompt.md §3, §9.7 - Stretch S4). Per-user: link a YouTube/Reddit
 //! account, then repeatedly **sync** subscribed channels/subreddits into your feeds (adding only
 //! the ones you don't already have). Refresh tokens are stored encrypted and never returned.
 
@@ -28,25 +28,27 @@ fn provider_of(s: &str) -> ApiResult<Provider> {
     Provider::parse(s).ok_or_else(|| AppError::NotFound("unknown provider".into()))
 }
 
-/// `GET /api/oauth/status` — per-provider configured/connected status for the current user.
-async fn status(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<Vec<ConnectionStatus>>> {
+/// `GET /api/oauth/status` - per-provider configured/connected status for the current user.
+async fn status(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<ConnectionStatus>>> {
     let list = oauth::status_for(&state.pool, &state.oauth, user.id)
         .await
         .map_err(AppError::Internal)?;
     Ok(Json(list))
 }
 
-/// `GET /api/oauth/:provider/authorize` — begin linking; returns the provider consent URL.
+/// `GET /api/oauth/:provider/authorize` - begin linking; returns the provider consent URL.
 async fn authorize(
     user: CurrentUser,
     State(state): State<AppState>,
     Path(provider): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let provider = provider_of(&provider)?;
-    let client = state
-        .oauth
-        .client(provider)
-        .ok_or_else(|| AppError::BadRequest("this provider is not configured on the server".into()))?;
+    let client = state.oauth.client(provider).ok_or_else(|| {
+        AppError::BadRequest("this provider is not configured on the server".into())
+    })?;
     let redirect_uri = state.oauth.redirect_uri(provider);
     let csrf = state.oauth_states.issue(user.id, provider);
     let url = oauth::authorize_url(provider, client, &redirect_uri, &csrf);
@@ -60,7 +62,7 @@ struct CallbackQuery {
     error: Option<String>,
 }
 
-/// `GET /api/oauth/:provider/callback` — provider redirect target. Exchanges the code for a refresh
+/// `GET /api/oauth/:provider/callback` - provider redirect target. Exchanges the code for a refresh
 /// token (stored encrypted) and bounces back to the SPA. The `state` param binds the flow to the
 /// user who started it (CSRF); we never trust a client-supplied user id.
 async fn callback(
@@ -95,7 +97,9 @@ async fn callback(
 
     match oauth::exchange_code(&state.http_client, provider, client, &redirect_uri, &code).await {
         Ok((refresh_token, scope)) => {
-            let label = oauth::fetch_account_label(&state.http_client, provider, client, &refresh_token).await;
+            let label =
+                oauth::fetch_account_label(&state.http_client, provider, client, &refresh_token)
+                    .await;
             if let Err(e) = oauth::save_connection(
                 &state.pool,
                 &state.enc_key,
@@ -125,7 +129,7 @@ struct SyncBody {
     category_id: Option<i64>,
 }
 
-/// `POST /api/oauth/:provider/sync` — import the user's subscriptions, adding only new feeds. Safe
+/// `POST /api/oauth/:provider/sync` - import the user's subscriptions, adding only new feeds. Safe
 /// to press repeatedly.
 async fn sync(
     user: CurrentUser,
@@ -134,10 +138,9 @@ async fn sync(
     body: Option<Json<SyncBody>>,
 ) -> ApiResult<Json<SyncOutcome>> {
     let provider = provider_of(&provider)?;
-    let client = state
-        .oauth
-        .client(provider)
-        .ok_or_else(|| AppError::BadRequest("this provider is not configured on the server".into()))?;
+    let client = state.oauth.client(provider).ok_or_else(|| {
+        AppError::BadRequest("this provider is not configured on the server".into())
+    })?;
 
     let refresh_token = oauth::load_refresh_token(&state.pool, &state.enc_key, user.id, provider)
         .await
@@ -153,20 +156,24 @@ async fn sync(
     let cfg = IngestSettings::load(&state.pool).await;
     let outcome = oauth::reconcile(&state.pool, &cfg, user.id, category_id, &subs).await?;
 
-    oauth::touch_synced(&state.pool, user.id, provider).await.map_err(AppError::Internal)?;
-    // Synced feeds are deliberately NOT due yet (§3 fix — no immediate backlog poll); they'll
+    oauth::touch_synced(&state.pool, user.id, provider)
+        .await
+        .map_err(AppError::Internal)?;
+    // Synced feeds are deliberately NOT due yet (§3 fix - no immediate backlog poll); they'll
     // join the normal polling schedule on their own. No scheduler wakeup needed here.
     Ok(Json(outcome))
 }
 
-/// `DELETE /api/oauth/:provider` — unlink the account (drops the stored token). Imported feeds stay.
+/// `DELETE /api/oauth/:provider` - unlink the account (drops the stored token). Imported feeds stay.
 async fn disconnect(
     user: CurrentUser,
     State(state): State<AppState>,
     Path(provider): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let provider = provider_of(&provider)?;
-    oauth::delete_connection(&state.pool, user.id, provider).await.map_err(AppError::Internal)?;
+    oauth::delete_connection(&state.pool, user.id, provider)
+        .await
+        .map_err(AppError::Internal)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -179,7 +186,11 @@ async fn resolve_category(state: &AppState, user_id: i64, provided: Option<i64>)
             .fetch_optional(&state.pool)
             .await?
             .is_some();
-        return if ok { Ok(id) } else { Err(AppError::BadRequest("a valid category is required".into())) };
+        return if ok {
+            Ok(id)
+        } else {
+            Err(AppError::BadRequest("a valid category is required".into()))
+        };
     }
     sqlx::query("SELECT id FROM categories WHERE user_id = ? AND name = 'Other'")
         .bind(user_id)

@@ -1,4 +1,4 @@
-//! Items API — the core reader (prompt.md §9.1, §9.1a, §9.2, §10, §11).
+//! Items API - the core reader (prompt.md §9.1, §9.1a, §9.2, §10, §11).
 //!
 //! Items and feeds are shared/global; read/star state and `min_score` are per-user and applied at
 //! query time. Every query joins the caller's `subscriptions` (from the session, never a client
@@ -60,8 +60,11 @@ fn push_scope(qb: &mut QueryBuilder<'_, Sqlite>, user_id: i64, f: &Filters) {
           LEFT JOIN item_states st ON st.item_id = i.id AND st.user_id = ",
     );
     qb.push_bind(user_id);
-    // Paused subscriptions drop out of the reader; Reddit min_score applied to shared items.
-    qb.push(" WHERE s.disabled = 0 AND (i.score IS NULL OR i.score >= s.min_score)");
+    // Paused subscriptions drop out of the reader; Reddit min_score applied to shared items. A
+    // NULL score (e.g. the Reddit JSON endpoint got blocked and ingestion fell back to plain
+    // .rss, which carries no vote data) must not bypass a real threshold - unknown is treated as
+    // "too low", not "let it through". min_score<=0 ("off") still shows everything.
+    qb.push(" WHERE s.disabled = 0 AND (s.min_score <= 0 OR (i.score IS NOT NULL AND i.score >= s.min_score))");
 
     if let Some(ct) = &f.content_type {
         qb.push(" AND s.content_type = ");
@@ -150,7 +153,7 @@ struct ItemsPage {
     total_count: i64,
 }
 
-/// `GET /api/items` — the filtered, sorted, paginated card grid (§10). Offset/limit pagination.
+/// `GET /api/items` - the filtered, sorted, paginated card grid (§10). Offset/limit pagination.
 async fn list_items(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -168,7 +171,11 @@ async fn list_items(
     let mut cb = QueryBuilder::new("SELECT COUNT(*) AS n");
     push_scope(&mut cb, user.id, &filters);
     let total_count: i64 = cb.build().fetch_one(&state.pool).await?.get("n");
-    let total_pages = if total_count == 0 { 0 } else { (total_count + page_size - 1) / page_size };
+    let total_pages = if total_count == 0 {
+        0
+    } else {
+        (total_count + page_size - 1) / page_size
+    };
 
     // Page of items.
     let mut qb = QueryBuilder::new(
@@ -184,7 +191,7 @@ async fn list_items(
     );
     push_scope(&mut qb, user.id, &filters);
     qb.push(" ORDER BY ");
-    qb.push(sort_clause(&sort)); // whitelisted &'static str — never user input
+    qb.push(sort_clause(&sort)); // whitelisted &'static str - never user input
     qb.push(" LIMIT ");
     qb.push_bind(page_size);
     qb.push(" OFFSET ");
@@ -193,7 +200,13 @@ async fn list_items(
     let rows = qb.build().fetch_all(&state.pool).await?;
     let items = rows.iter().map(row_to_item).collect();
 
-    Ok(Json(ItemsPage { items, page, page_size, total_pages, total_count }))
+    Ok(Json(ItemsPage {
+        items,
+        page,
+        page_size,
+        total_pages,
+        total_count,
+    }))
 }
 
 fn row_to_item(r: &sqlx::sqlite::SqliteRow) -> ItemDto {
@@ -249,7 +262,7 @@ struct ItemDetailDto {
     site_url: Option<String>,
 }
 
-/// `GET /api/items/{id}` — full item for the preview surface (§9.1a). 404 unless the caller
+/// `GET /api/items/{id}` - full item for the preview surface (§9.1a). 404 unless the caller
 /// subscribes to the item's feed. `summary` is the shared cache entry when present (Phase 5 fills
 /// this in; for now it's whatever's cached, else null).
 async fn get_item(
@@ -310,7 +323,7 @@ struct StateDto {
     is_starred: bool,
 }
 
-/// `POST /api/items/{id}/read` — per-user upsert into `item_states` (no pre-created rows).
+/// `POST /api/items/{id}/read` - per-user upsert into `item_states` (no pre-created rows).
 async fn set_read(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -336,10 +349,13 @@ async fn set_read(
     .execute(&state.pool)
     .await?;
 
-    Ok(Json(StateDto { is_read: new_read, is_starred }))
+    Ok(Json(StateDto {
+        is_read: new_read,
+        is_starred,
+    }))
 }
 
-/// `POST /api/items/{id}/star` — per-user upsert into `item_states`.
+/// `POST /api/items/{id}/star` - per-user upsert into `item_states`.
 async fn set_star(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -363,7 +379,10 @@ async fn set_star(
     .execute(&state.pool)
     .await?;
 
-    Ok(Json(StateDto { is_read, is_starred: new_starred }))
+    Ok(Json(StateDto {
+        is_read,
+        is_starred: new_starred,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +402,7 @@ struct SummaryDto {
     cached: bool,
 }
 
-/// `POST /api/items/{id}/summarize` — on-demand AI summary for a reading or video item, written to
+/// `POST /api/items/{id}/summarize` - on-demand AI summary for a reading or video item, written to
 /// the shared cache and reused (prompt.md §6, §6a). Scoped: 404 unless the caller subscribes to the
 /// item's feed. Any AI/provider/budget failure returns a clear error (never crashes, §11).
 async fn summarize(
@@ -397,13 +416,18 @@ async fn summarize(
 
     use crate::ai::summarize::{summarize_item, SummarizeError};
     match summarize_item(&state.pool, &state.http_client, &state.enc_key, id, force).await {
-        Ok(r) => Ok(Json(SummaryDto { summary: r.summary, model: r.model, cached: r.cached })),
+        Ok(r) => Ok(Json(SummaryDto {
+            summary: r.summary,
+            model: r.model,
+            cached: r.cached,
+        })),
         Err(SummarizeError::NotConfigured) => Err(AppError::BadRequest(
-            "AI summarization is not configured — an admin must add and activate a provider.".into(),
+            "AI summarization is not configured - an admin must add and activate a provider."
+                .into(),
         )),
-        Err(SummarizeError::NoContent) => {
-            Err(AppError::BadRequest("this item has no text to summarize".into()))
-        }
+        Err(SummarizeError::NoContent) => Err(AppError::BadRequest(
+            "this item has no text to summarize".into(),
+        )),
         Err(SummarizeError::Budget(m)) => Err(AppError::BadRequest(m)),
         Err(SummarizeError::Provider(m)) => Err(AppError::Upstream(m)),
         Err(SummarizeError::Internal(e)) => Err(AppError::Internal(e)),
@@ -433,7 +457,7 @@ struct CountsDto {
     categories: Vec<CategoryCount>,
 }
 
-/// `GET /api/categories/counts` — chip counts that reflect the active Type/Status/When facets but
+/// `GET /api/categories/counts` - chip counts that reflect the active Type/Status/When facets but
 /// NOT the category facet itself (§9.1, §11). Includes every category (zero-filled) plus a total.
 async fn category_counts(
     user: CurrentUser,
@@ -473,7 +497,10 @@ async fn category_counts(
         .iter()
         .map(|r| {
             let id: i64 = r.get("id");
-            CategoryCount { category_id: id, count: by_id.get(&id).copied().unwrap_or(0) }
+            CategoryCount {
+                category_id: id,
+                count: by_id.get(&id).copied().unwrap_or(0),
+            }
         })
         .collect();
 
@@ -502,7 +529,13 @@ fn status_filter(s: Option<&str>) -> Option<String> {
 
 fn build_filters(q: &ItemQuery, tz: &Tz) -> Filters {
     let when = when_range(q.when.as_deref().unwrap_or("all"), tz, Utc::now());
-    let category = q.category.as_deref().and_then(|c| if c == "all" { None } else { i64::from_str(c).ok() });
+    let category = q.category.as_deref().and_then(|c| {
+        if c == "all" {
+            None
+        } else {
+            i64::from_str(c).ok()
+        }
+    });
     Filters {
         content_type: content_type_filter(q.r#type.as_deref()),
         status: status_filter(q.status.as_deref()),
@@ -566,13 +599,18 @@ async fn owned_item(pool: &SqlitePool, user_id: i64, item_id: i64) -> ApiResult<
 
 /// Current (is_read, is_starred) for a user+item; (false, false) when no row exists yet.
 async fn current_state(pool: &SqlitePool, user_id: i64, item_id: i64) -> ApiResult<(bool, bool)> {
-    let row = sqlx::query("SELECT is_read, is_starred FROM item_states WHERE user_id = ? AND item_id = ?")
-        .bind(user_id)
-        .bind(item_id)
-        .fetch_optional(pool)
-        .await?;
+    let row = sqlx::query(
+        "SELECT is_read, is_starred FROM item_states WHERE user_id = ? AND item_id = ?",
+    )
+    .bind(user_id)
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await?;
     Ok(match row {
-        Some(r) => (r.get::<i64, _>("is_read") != 0, r.get::<i64, _>("is_starred") != 0),
+        Some(r) => (
+            r.get::<i64, _>("is_read") != 0,
+            r.get::<i64, _>("is_starred") != 0,
+        ),
         None => (false, false),
     })
 }

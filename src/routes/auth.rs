@@ -45,7 +45,7 @@ async fn registration_status(State(state): State<AppState>) -> ApiResult<Json<Re
     }))
 }
 
-/// `POST /api/auth/register` — open self-signup (role=user), gated by `allow_registration`.
+/// `POST /api/auth/register` - open self-signup (role=user), gated by `allow_registration`.
 async fn register(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -85,11 +85,15 @@ async fn register(
     let jar = jar.add(session::cookie(sid));
     Ok((
         jar,
-        Json(UserDto { id, username, role: Role::User }),
+        Json(UserDto {
+            id,
+            username,
+            role: Role::User,
+        }),
     ))
 }
 
-/// `POST /api/auth/login` — username + password. Generic errors (no username enumeration).
+/// `POST /api/auth/login` - username + password. Generic errors (no username enumeration).
 async fn login(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -126,11 +130,15 @@ async fn login(
     let jar = jar.add(session::cookie(sid));
     Ok((
         jar,
-        Json(UserDto { id, username: row.get("username"), role }),
+        Json(UserDto {
+            id,
+            username: row.get("username"),
+            role,
+        }),
     ))
 }
 
-/// `POST /api/auth/logout` — revoke this session and clear the cookie.
+/// `POST /api/auth/logout` - revoke this session and clear the cookie.
 async fn logout(
     State(state): State<AppState>,
     jar: SignedCookieJar,
@@ -142,7 +150,7 @@ async fn logout(
     Ok((jar, Json(serde_json::json!({ "ok": true }))))
 }
 
-/// `POST /api/auth/logout-all` — revoke every session for the current user (§9.12).
+/// `POST /api/auth/logout-all` - revoke every session for the current user (§9.12).
 async fn logout_all(
     State(state): State<AppState>,
     user: crate::auth::extract::CurrentUser,
@@ -155,10 +163,11 @@ async fn logout_all(
 
 /// Read the global `allow_registration` flag (defaults to true if unset).
 pub async fn allow_registration(pool: &SqlitePool) -> ApiResult<bool> {
-    let val: Option<String> = sqlx::query("SELECT value FROM app_settings WHERE key = 'allow_registration'")
-        .fetch_optional(pool)
-        .await?
-        .map(|r| r.get("value"));
+    let val: Option<String> =
+        sqlx::query("SELECT value FROM app_settings WHERE key = 'allow_registration'")
+            .fetch_optional(pool)
+            .await?
+            .map(|r| r.get("value"));
     Ok(val.map(|v| v == "true").unwrap_or(true))
 }
 

@@ -1,5 +1,5 @@
 //! Per-user preferences (prompt.md §8, §9.7 General tab, §10). Stored in the per-user `settings`
-//! table (key/value), scoped to the session user. These are *preferences only* — engine config
+//! table (key/value), scoped to the session user. These are *preferences only* - engine config
 //! lives in `app_settings` (admin-only). Also carries the one-shot `onboarded` flag (§9.11).
 
 use axum::extract::State;
@@ -15,20 +15,26 @@ use crate::http::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings).put(put_settings))
-        .route("/onboarding/starter-feeds", axum::routing::post(subscribe_starter_feeds))
+        .route(
+            "/onboarding/starter-feeds",
+            axum::routing::post(subscribe_starter_feeds),
+        )
 }
 
-/// `POST /api/onboarding/starter-feeds` — opt-in subscribe to the §3 starter set during onboarding
+/// `POST /api/onboarding/starter-feeds` - opt-in subscribe to the §3 starter set during onboarding
 /// (§9.11), mapping each to the user's seeded category by name. Idempotent; returns how many were
-/// added. Never force-run — the client calls this only if the user chooses the starter set.
-async fn subscribe_starter_feeds(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+/// added. Never force-run - the client calls this only if the user chooses the starter set.
+async fn subscribe_starter_feeds(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<serde_json::Value>> {
     use crate::ingest::settings::IngestSettings;
     use crate::ingest::FeedKind;
 
     let cfg = IngestSettings::load(&state.pool).await;
     let mut added = 0usize;
     for (feed_url, kind, category) in crate::seed::STARTER_FEEDS {
-        // Create category on demand — only "Other" is seeded now (§TODO-9).
+        // Create category on demand - only "Other" is seeded now (§TODO-9).
         sqlx::query("INSERT OR IGNORE INTO categories (user_id, name, position) VALUES (?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM categories WHERE user_id = ?))")
             .bind(user.id)
             .bind(category)
@@ -41,7 +47,18 @@ async fn subscribe_starter_feeds(user: CurrentUser, State(state): State<AppState
             .fetch_one(&state.pool)
             .await?
             .get("id");
-        if crate::routes::feeds::subscribe_url(&state.pool, &cfg, user.id, feed_url, FeedKind::from_db(kind), cat_id, None, true).await? {
+        if crate::routes::feeds::subscribe_url(
+            &state.pool,
+            &cfg,
+            user.id,
+            feed_url,
+            FeedKind::from_db(kind),
+            cat_id,
+            None,
+            true,
+        )
+        .await?
+        {
             added += 1;
         }
     }
@@ -79,7 +96,10 @@ impl Default for SettingsDto {
     }
 }
 
-async fn get_settings(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<SettingsDto>> {
+async fn get_settings(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<SettingsDto>> {
     Ok(Json(load(&state.pool, user.id).await?))
 }
 
@@ -114,11 +134,19 @@ async fn put_settings(
         set(&state.pool, user.id, "content_view", v).await?;
     }
     if let Some(p) = body.page_size {
-        set(&state.pool, user.id, "page_size", &p.clamp(1, 100).to_string()).await?;
+        set(
+            &state.pool,
+            user.id,
+            "page_size",
+            &p.clamp(1, 100).to_string(),
+        )
+        .await?;
     }
     if let Some(tz) = &body.timezone {
         if tz.parse::<chrono_tz::Tz>().is_err() {
-            return Err(AppError::BadRequest("unknown timezone (use an IANA name like 'Europe/Warsaw')".into()));
+            return Err(AppError::BadRequest(
+                "unknown timezone (use an IANA name like 'Europe/Warsaw')".into(),
+            ));
         }
         set(&state.pool, user.id, "timezone", tz).await?;
     }

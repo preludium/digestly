@@ -38,24 +38,24 @@ pub struct Fetched {
     pub body: Vec<u8>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
-    /// Set when the chain was an unbroken series of permanent (301/308) redirects — persist it
+    /// Set when the chain was an unbroken series of permanent (301/308) redirects - persist it
     /// as the feed's new `feed_url`.
     pub permanent_url: Option<String>,
 }
 
 pub enum FetchOutcome {
-    /// 304 — nothing changed; caller just touches `last_fetch_at` + reschedules.
+    /// 304 - nothing changed; caller just touches `last_fetch_at` + reschedules.
     NotModified,
     Fetched(Fetched),
 }
 
 /// Fetch failure, classified so `store` can decide disable-now vs backoff (prompt.md §11).
 pub enum FetchError {
-    /// Terminal (410 gone / 401 / 403) — disable the feed with this reason immediately.
+    /// Terminal (410 gone / 401 / 403) - disable the feed with this reason immediately.
     Disable(String),
-    /// Rate limited — reschedule at least this far out (honor `Retry-After`).
+    /// Rate limited - reschedule at least this far out (honor `Retry-After`).
     RetryAfter(i64, String),
-    /// Transient (network, 404, 5xx, timeout, redirect loop, too large) — backoff.
+    /// Transient (network, 404, 5xx, timeout, redirect loop, too large) - backoff.
     Transient(String),
 }
 
@@ -83,7 +83,10 @@ pub async fn get(
             .get(&current)
             .timeout(Duration::from_secs(cfg.timeout_secs))
             .header(UA_HEADER, USER_AGENT)
-            .header(ACCEPT, "application/rss+xml, application/atom+xml, application/json, text/xml, */*");
+            .header(
+                ACCEPT,
+                "application/rss+xml, application/atom+xml, application/json, text/xml, */*",
+            );
         // Conditional headers only on the first (non-redirected) request.
         if current == url {
             if let Some(etag) = cond.etag.filter(|s| !s.is_empty()) {
@@ -102,13 +105,18 @@ pub async fn get(
         }
 
         if status.is_redirection() {
-            let permanent = matches!(status, StatusCode::MOVED_PERMANENTLY | StatusCode::PERMANENT_REDIRECT);
+            let permanent = matches!(
+                status,
+                StatusCode::MOVED_PERMANENTLY | StatusCode::PERMANENT_REDIRECT
+            );
             let location = resp
                 .headers()
                 .get(LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|loc| url_util::resolve(&current, loc))
-                .ok_or_else(|| FetchError::Transient(format!("{status} without a usable Location")))?;
+                .ok_or_else(|| {
+                    FetchError::Transient(format!("{status} without a usable Location"))
+                })?;
             if !permanent {
                 chain_permanent = false;
             }
@@ -123,7 +131,7 @@ pub async fn get(
             return Err(classify_status(status, &resp));
         }
 
-        // 2xx — read validators, then the (capped) body.
+        // 2xx - read validators, then the (capped) body.
         let etag = header_str(&resp, ETAG);
         let last_modified = header_str(&resp, LAST_MODIFIED);
         let body = read_capped(resp, cfg.body_cap_bytes).await?;
@@ -145,7 +153,9 @@ async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<Vec<u8>, Fet
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| FetchError::Transient(format!("body read error: {e}")))?;
         if buf.len() + chunk.len() > cap {
-            return Err(FetchError::Transient(format!("response exceeds {cap} byte cap")));
+            return Err(FetchError::Transient(format!(
+                "response exceeds {cap} byte cap"
+            )));
         }
         buf.extend_from_slice(&chunk);
     }
@@ -153,13 +163,18 @@ async fn read_capped(resp: reqwest::Response, cap: usize) -> Result<Vec<u8>, Fet
 }
 
 fn header_str(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
-    resp.headers().get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+    resp.headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
 }
 
 fn classify_status(status: StatusCode, resp: &reqwest::Response) -> FetchError {
     match status {
-        StatusCode::GONE => FetchError::Disable("410 Gone — feed removed".into()),
-        StatusCode::UNAUTHORIZED => FetchError::Disable("401 Unauthorized — feed requires auth".into()),
+        StatusCode::GONE => FetchError::Disable("410 Gone - feed removed".into()),
+        StatusCode::UNAUTHORIZED => {
+            FetchError::Disable("401 Unauthorized - feed requires auth".into())
+        }
         StatusCode::FORBIDDEN => FetchError::Disable("403 Forbidden".into()),
         StatusCode::TOO_MANY_REQUESTS => {
             let secs = header_str(resp, RETRY_AFTER)

@@ -1,12 +1,12 @@
-//! Passkey / WebAuthn endpoints (prompt.md §9.10, §9.12, §10, §11 — Stretch S1).
+//! Passkey / WebAuthn endpoints (prompt.md §9.10, §9.12, §10, §11 - Stretch S1).
 //!
 //! Two families:
-//! * **Passwordless login** (`/api/auth/passkey/login/{options,verify}`) — public; username-first
+//! * **Passwordless login** (`/api/auth/passkey/login/{options,verify}`) - public; username-first
 //!   so the RP can name the allowed credentials, then a WebAuthn assertion signs the user in.
 //!   A discoverable (Conditional UI / autofill) variant lives at
-//!   `/api/auth/passkey/discoverable/login/{options,verify}` — no username needed; the user is
+//!   `/api/auth/passkey/discoverable/login/{options,verify}` - no username needed; the user is
 //!   resolved from the chosen credential's embedded handle.
-//! * **Management** (`/api/passkeys/*`) — authed; register a new passkey, list/rename/delete.
+//! * **Management** (`/api/passkeys/*`) - authed; register a new passkey, list/rename/delete.
 //!
 //! Ceremony state lives in-process ([`CeremonyStore`]) between the `options` and `verify` calls;
 //! the client echoes back the opaque `ceremony_id` it received. Sign-count regression and the
@@ -33,8 +33,14 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/passkey/login/options", post(login_options))
         .route("/auth/passkey/login/verify", post(login_verify))
         // Discoverable / Conditional-UI login (public, autofill).
-        .route("/auth/passkey/discoverable/login/options", post(discoverable_login_options))
-        .route("/auth/passkey/discoverable/login/verify", post(discoverable_login_verify))
+        .route(
+            "/auth/passkey/discoverable/login/options",
+            post(discoverable_login_options),
+        )
+        .route(
+            "/auth/passkey/discoverable/login/verify",
+            post(discoverable_login_verify),
+        )
         // Management (authed).
         .route("/passkeys", get(list))
         .route("/passkeys/register/options", post(register_options))
@@ -58,7 +64,7 @@ struct CeremonyResponse<T> {
     options: T,
 }
 
-/// `POST /api/passkeys/register/options` — begin registering a passkey for the current user.
+/// `POST /api/passkeys/register/options` - begin registering a passkey for the current user.
 /// Excludes the user's existing credentials so the same authenticator can't be double-registered.
 async fn register_options(
     State(state): State<AppState>,
@@ -69,16 +75,29 @@ async fn register_options(
     // Credentials to exclude = everything the user already has.
     let existing = load_user_passkeys(&state, user.id).await?;
     let exclude: Vec<CredentialID> = existing.iter().map(|p| p.cred_id().clone()).collect();
-    let exclude = if exclude.is_empty() { None } else { Some(exclude) };
+    let exclude = if exclude.is_empty() {
+        None
+    } else {
+        Some(exclude)
+    };
 
     let (options, reg_state) = webauthn
-        .start_passkey_registration(passkey::user_handle(user.id), &user.username, &user.username, exclude)
+        .start_passkey_registration(
+            passkey::user_handle(user.id),
+            &user.username,
+            &user.username,
+            exclude,
+        )
         .map_err(webauthn_bad_request)?;
 
-    let ceremony_id = state
-        .passkey_ceremonies
-        .insert(Ceremony::Register { user_id: user.id, state: reg_state });
-    Ok(Json(CeremonyResponse { ceremony_id, options }))
+    let ceremony_id = state.passkey_ceremonies.insert(Ceremony::Register {
+        user_id: user.id,
+        state: reg_state,
+    });
+    Ok(Json(CeremonyResponse {
+        ceremony_id,
+        options,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -96,7 +115,7 @@ struct PasskeyDto {
     last_used_at: Option<String>,
 }
 
-/// `POST /api/passkeys/register/verify` — finish registration and persist the credential.
+/// `POST /api/passkeys/register/verify` - finish registration and persist the credential.
 async fn register_verify(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -107,8 +126,14 @@ async fn register_verify(
     let ceremony = state
         .passkey_ceremonies
         .take(&body.ceremony_id)
-        .ok_or_else(|| AppError::BadRequest("passkey registration expired — please try again".into()))?;
-    let Ceremony::Register { user_id, state: reg_state } = ceremony else {
+        .ok_or_else(|| {
+            AppError::BadRequest("passkey registration expired - please try again".into())
+        })?;
+    let Ceremony::Register {
+        user_id,
+        state: reg_state,
+    } = ceremony
+    else {
         return Err(AppError::BadRequest("wrong ceremony type".into()));
     };
     // The ceremony must belong to the caller (defence in depth; the id is unguessable already).
@@ -130,7 +155,9 @@ async fn register_verify(
         .fetch_optional(&state.pool)
         .await?;
     if existing.is_some() {
-        return Err(AppError::Conflict("this passkey is already registered".into()));
+        return Err(AppError::Conflict(
+            "this passkey is already registered".into(),
+        ));
     }
 
     let row = sqlx::query(
@@ -160,7 +187,7 @@ struct LoginOptions {
     username: String,
 }
 
-/// `POST /api/auth/passkey/login/options` — begin a passwordless sign-in for a username. The RP
+/// `POST /api/auth/passkey/login/options` - begin a passwordless sign-in for a username. The RP
 /// needs the account's credentials to build the assertion challenge, so this is username-first
 /// (still passwordless). A clear error if the account has no passkeys.
 async fn login_options(
@@ -177,7 +204,11 @@ async fn login_options(
         .await?;
     let (user_id, disabled): (i64, i64) = match row {
         Some(r) => (r.get("id"), r.get("disabled")),
-        None => return Err(AppError::BadRequest("no passkey is registered for this account".into())),
+        None => {
+            return Err(AppError::BadRequest(
+                "no passkey is registered for this account".into(),
+            ))
+        }
     };
     if disabled != 0 {
         return Err(AppError::Unauthorized);
@@ -185,17 +216,23 @@ async fn login_options(
 
     let passkeys = load_user_passkeys(&state, user_id).await?;
     if passkeys.is_empty() {
-        return Err(AppError::BadRequest("no passkey is registered for this account".into()));
+        return Err(AppError::BadRequest(
+            "no passkey is registered for this account".into(),
+        ));
     }
 
     let (options, auth_state) = webauthn
         .start_passkey_authentication(&passkeys)
         .map_err(webauthn_bad_request)?;
 
-    let ceremony_id = state
-        .passkey_ceremonies
-        .insert(Ceremony::Login { user_id, state: auth_state });
-    Ok(Json(CeremonyResponse { ceremony_id, options }))
+    let ceremony_id = state.passkey_ceremonies.insert(Ceremony::Login {
+        user_id,
+        state: auth_state,
+    });
+    Ok(Json(CeremonyResponse {
+        ceremony_id,
+        options,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -204,7 +241,7 @@ struct LoginVerify {
     credential: PublicKeyCredential,
 }
 
-/// `POST /api/auth/passkey/login/verify` — finish the assertion, enforce sign-count regression,
+/// `POST /api/auth/passkey/login/verify` - finish the assertion, enforce sign-count regression,
 /// and issue a session. Generic `Unauthorized` on any failure (no enumeration).
 async fn login_verify(
     State(state): State<AppState>,
@@ -217,7 +254,11 @@ async fn login_verify(
         .passkey_ceremonies
         .take(&body.ceremony_id)
         .ok_or(AppError::Unauthorized)?;
-    let Ceremony::Login { user_id, state: auth_state } = ceremony else {
+    let Ceremony::Login {
+        user_id,
+        state: auth_state,
+    } = ceremony
+    else {
         return Err(AppError::Unauthorized);
     };
 
@@ -231,7 +272,7 @@ async fn login_verify(
 
 // ── Discoverable / Conditional-UI login (public) ─────────────────────────────
 
-/// `POST /api/auth/passkey/discoverable/login/options` — begin an autofill (Conditional UI)
+/// `POST /api/auth/passkey/discoverable/login/options` - begin an autofill (Conditional UI)
 /// sign-in. No username is required: the crate emits `mediation: "conditional"` into the
 /// challenge, and the authenticator later reveals which credential (and user) was chosen.
 async fn discoverable_login_options(
@@ -246,10 +287,13 @@ async fn discoverable_login_options(
     let ceremony_id = state
         .passkey_ceremonies
         .insert(Ceremony::DiscoverableLogin { state: auth_state });
-    Ok(Json(CeremonyResponse { ceremony_id, options }))
+    Ok(Json(CeremonyResponse {
+        ceremony_id,
+        options,
+    }))
 }
 
-/// `POST /api/auth/passkey/discoverable/login/verify` — resolve the user from the discoverable
+/// `POST /api/auth/passkey/discoverable/login/verify` - resolve the user from the discoverable
 /// credential, verify the assertion, and issue a session. Generic `Unauthorized` on any failure.
 async fn discoverable_login_verify(
     State(state): State<AppState>,
@@ -310,9 +354,15 @@ async fn finish_login(
     let stored_count: i64 = stored.get("sign_count");
     let presented = result.counter();
 
-    // Explicit sign-count regression guard (§11) — reject a cloned/replayed authenticator.
+    // Explicit sign-count regression guard (§11) - reject a cloned/replayed authenticator.
     if passkey::sign_count_regressed(stored_count as u32, presented) {
-        tracing::warn!(user_id, passkey_id, stored_count, presented, "rejecting passkey: sign-count regression (possible cloned authenticator)");
+        tracing::warn!(
+            user_id,
+            passkey_id,
+            stored_count,
+            presented,
+            "rejecting passkey: sign-count regression (possible cloned authenticator)"
+        );
         return Err(AppError::Unauthorized);
     }
 
@@ -349,13 +399,23 @@ async fn finish_login(
 
     let sid = session::create(&state.pool, user_id).await?;
     let jar = jar.add(session::cookie(sid));
-    Ok((jar, Json(UserDto { id: user_id, username: urow.get("username"), role })))
+    Ok((
+        jar,
+        Json(UserDto {
+            id: user_id,
+            username: urow.get("username"),
+            role,
+        }),
+    ))
 }
 
 // ── Management (authed) ──────────────────────────────────────────────────────
 
-/// `GET /api/passkeys` — the current user's passkeys (never the public-key material).
-async fn list(State(state): State<AppState>, user: CurrentUser) -> ApiResult<Json<Vec<PasskeyDto>>> {
+/// `GET /api/passkeys` - the current user's passkeys (never the public-key material).
+async fn list(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> ApiResult<Json<Vec<PasskeyDto>>> {
     let rows = sqlx::query(
         "SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY id",
     )
@@ -366,7 +426,9 @@ async fn list(State(state): State<AppState>, user: CurrentUser) -> ApiResult<Jso
         .into_iter()
         .map(|r| PasskeyDto {
             id: r.get("id"),
-            name: r.get::<Option<String>, _>("name").unwrap_or_else(|| "Passkey".into()),
+            name: r
+                .get::<Option<String>, _>("name")
+                .unwrap_or_else(|| "Passkey".into()),
             created_at: r.get("created_at"),
             last_used_at: r.get("last_used_at"),
         })
@@ -379,7 +441,7 @@ struct Rename {
     name: String,
 }
 
-/// `PATCH /api/passkeys/:id` — rename one of the current user's passkeys.
+/// `PATCH /api/passkeys/:id` - rename one of the current user's passkeys.
 async fn rename(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -400,7 +462,7 @@ async fn rename(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `DELETE /api/passkeys/:id` — remove a passkey, unless it's the user's only sign-in method.
+/// `DELETE /api/passkeys/:id` - remove a passkey, unless it's the user's only sign-in method.
 async fn delete(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -430,7 +492,8 @@ async fn delete(
 
     if passkey::would_orphan_account(has_password, count) {
         return Err(AppError::BadRequest(
-            "cannot remove your only sign-in method — set a password or add another passkey first".into(),
+            "cannot remove your only sign-in method - set a password or add another passkey first"
+                .into(),
         ));
     }
 

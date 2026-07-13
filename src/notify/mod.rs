@@ -1,7 +1,7 @@
 //! Per-user ntfy notifications (prompt.md §7a, §11).
 //!
 //! Every user (admin or not) can configure a personal **ntfy** channel; Digestly only stores the
-//! inputs and POSTs to it — it never bundles a server. The auth token is encrypted at rest
+//! inputs and POSTs to it - it never bundles a server. The auth token is encrypted at rest
 //! ([`crate::ai::crypto`]) and **never** returned by the API or logged. Two events fire:
 //! a post-digest summary (§7) and a throttled feed-health alert (one per feed per transition,
 //! de-duped so a feed shared by many users notifies each subscriber at most once).
@@ -23,7 +23,7 @@ use crate::ingest::url_util;
 /// ntfy send timeout per attempt.
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The user's ntfy config as returned to the API — **never** includes the token (only `has_token`).
+/// The user's ntfy config as returned to the API - **never** includes the token (only `has_token`).
 #[derive(Debug, serde::Serialize)]
 pub struct NotificationConfig {
     pub ntfy_server_url: Option<String>,
@@ -123,9 +123,10 @@ pub async fn save(
 
     // Encrypt a new token if one was provided.
     let new_token_enc: Option<Vec<u8>> = match &token {
-        TokenUpdate::Set(t) if !t.trim().is_empty() => {
-            Some(crypto::encrypt(enc_key, t.trim()).map_err(|_| "could not store the auth token".to_string())?)
-        }
+        TokenUpdate::Set(t) if !t.trim().is_empty() => Some(
+            crypto::encrypt(enc_key, t.trim())
+                .map_err(|_| "could not store the auth token".to_string())?,
+        ),
         _ => None,
     };
 
@@ -147,15 +148,16 @@ pub async fn save(
              notify_on_digest = excluded.notify_on_digest,
              notify_on_feed_health = excluded.notify_on_feed_health,
              {token_sql}",
-        init_token = if matches!(token, TokenUpdate::Set(_)) { "?" } else { "NULL" },
+        init_token = if matches!(token, TokenUpdate::Set(_)) {
+            "?"
+        } else {
+            "NULL"
+        },
     );
 
     // Bind order: user_id, server, topic, [set-token-for-insert], priority, digest, health,
     // [set-token-for-update]. The token blob is bound twice when Set (insert value + update value).
-    let mut q = sqlx::query(&sql)
-        .bind(user_id)
-        .bind(&server)
-        .bind(&topic);
+    let mut q = sqlx::query(&sql).bind(user_id).bind(&server).bind(&topic);
     if let TokenUpdate::Set(_) = token {
         q = q.bind(new_token_enc.clone());
     }
@@ -175,7 +177,11 @@ pub async fn save(
 
 /// Resolve the user's channel with its token decrypted. `None` when no usable channel is
 /// configured (missing server or topic).
-pub async fn resolve_channel(pool: &SqlitePool, enc_key: &[u8; 32], user_id: i64) -> Result<Option<Channel>> {
+pub async fn resolve_channel(
+    pool: &SqlitePool,
+    enc_key: &[u8; 32],
+    user_id: i64,
+) -> Result<Option<Channel>> {
     let row = sqlx::query(
         "SELECT ntfy_server_url, ntfy_topic, ntfy_auth_token_enc, ntfy_priority
          FROM user_notifications WHERE user_id = ?",
@@ -198,7 +204,12 @@ pub async fn resolve_channel(pool: &SqlitePool, enc_key: &[u8; 32], user_id: i64
         Some(blob) => crypto::decrypt(enc_key, &blob).ok(),
         None => None,
     };
-    Ok(Some(Channel { server, topic, token, priority: r.get("ntfy_priority") }))
+    Ok(Some(Channel {
+        server,
+        topic,
+        token,
+        priority: r.get("ntfy_priority"),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +219,11 @@ pub async fn resolve_channel(pool: &SqlitePool, enc_key: &[u8; 32], user_id: i64
 /// Send one push to a channel: `POST {server}/{topic}` with headers. Timeout + one retry; a
 /// failure returns a user-safe message and never crashes the caller (§7a, §11).
 pub async fn send(http: &Client, ch: &Channel, push: &Push) -> Result<(), String> {
-    let url = format!("{}/{}", ch.server.trim_end_matches('/'), ch.topic.trim_start_matches('/'));
+    let url = format!(
+        "{}/{}",
+        ch.server.trim_end_matches('/'),
+        ch.topic.trim_start_matches('/')
+    );
     let tags = push.tags.join(",");
 
     let mut last_err = String::from("send failed");
@@ -249,7 +264,11 @@ pub async fn send(http: &Client, ch: &Channel, push: &Push) -> Result<(), String
                 }
             }
             Err(e) => {
-                last_err = if e.is_timeout() { "ntfy request timed out".into() } else { "could not reach the ntfy server".into() };
+                last_err = if e.is_timeout() {
+                    "ntfy request timed out".into()
+                } else {
+                    "could not reach the ntfy server".into()
+                };
             }
         }
     }
@@ -257,7 +276,12 @@ pub async fn send(http: &Client, ch: &Channel, push: &Push) -> Result<(), String
 }
 
 /// Send a test push to the user's channel (§7a "Test button"). Never echoes the token.
-pub async fn test(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32], user_id: i64) -> Result<(), String> {
+pub async fn test(
+    pool: &SqlitePool,
+    http: &Client,
+    enc_key: &[u8; 32],
+    user_id: i64,
+) -> Result<(), String> {
     let ch = resolve_channel(pool, enc_key, user_id)
         .await
         .map_err(|_| "could not read your notification settings".to_string())?
@@ -295,18 +319,24 @@ pub async fn feed_health_recipients(pool: &SqlitePool, feed_id: i64) -> Result<V
 }
 
 /// Fire the throttled feed-health alert to every subscriber (best-effort; per-user, no cross-user
-/// leakage — each is told only about a feed they themselves subscribe to). Call once per
+/// leakage - each is told only about a feed they themselves subscribe to). Call once per
 /// healthy→failing/disabled transition (see [`crate::ingest::store::record_failure`]).
-pub async fn notify_feed_health(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32], feed_id: i64) {
-    let title: Option<String> =
-        match sqlx::query("SELECT COALESCE(NULLIF(title, ''), feed_url) AS name FROM feeds WHERE id = ?")
-            .bind(feed_id)
-            .fetch_optional(pool)
-            .await
-        {
-            Ok(Some(r)) => Some(r.get("name")),
-            _ => None,
-        };
+pub async fn notify_feed_health(
+    pool: &SqlitePool,
+    http: &Client,
+    enc_key: &[u8; 32],
+    feed_id: i64,
+) {
+    let title: Option<String> = match sqlx::query(
+        "SELECT COALESCE(NULLIF(title, ''), feed_url) AS name FROM feeds WHERE id = ?",
+    )
+    .bind(feed_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(r)) => Some(r.get("name")),
+        _ => None,
+    };
     let feed_name = title.unwrap_or_else(|| "A feed".into());
 
     let recipients = match feed_health_recipients(pool, feed_id).await {
@@ -319,7 +349,11 @@ pub async fn notify_feed_health(pool: &SqlitePool, http: &Client, enc_key: &[u8;
     if recipients.is_empty() {
         return;
     }
-    debug!(feed_id, subscribers = recipients.len(), "sending feed-health notifications");
+    debug!(
+        feed_id,
+        subscribers = recipients.len(),
+        "sending feed-health notifications"
+    );
 
     for user_id in recipients {
         let ch = match resolve_channel(pool, enc_key, user_id).await {
@@ -344,7 +378,9 @@ pub async fn notify_feed_health(pool: &SqlitePool, http: &Client, enc_key: &[u8;
 // ---------------------------------------------------------------------------
 
 fn normalize_optional(s: Option<&str>) -> Option<String> {
-    s.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string())
+    s.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 /// Validate a ntfy server URL: must be a parseable http(s) URL with a host. Private/loopback hosts
@@ -361,7 +397,13 @@ pub fn validate_server_url(url: &str) -> Result<(), String> {
 fn ascii_header(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_ascii() && !c.is_ascii_control() { c } else { ' ' })
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     let trimmed = cleaned.trim();
     if trimmed.is_empty() {
@@ -378,8 +420,14 @@ mod tests {
     #[test]
     fn validate_server_url_allows_local_and_public_rejects_junk() {
         assert!(validate_server_url("https://ntfy.sh").is_ok());
-        assert!(validate_server_url("http://localhost:8080").is_ok(), "ntfy on localhost is allowed");
-        assert!(validate_server_url("http://192.168.1.5").is_ok(), "LAN ntfy is allowed");
+        assert!(
+            validate_server_url("http://localhost:8080").is_ok(),
+            "ntfy on localhost is allowed"
+        );
+        assert!(
+            validate_server_url("http://192.168.1.5").is_ok(),
+            "LAN ntfy is allowed"
+        );
         assert!(validate_server_url("not a url").is_err());
         assert!(validate_server_url("ftp://example.com").is_err());
     }

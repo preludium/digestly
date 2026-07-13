@@ -1,12 +1,16 @@
 //! Reddit JSON source (prompt.md §3, §11). The `.rss` feed lacks score/comments, so we hit the
-//! JSON endpoint for `score`/`num_comments`/`upvote_ratio` and read `selftext`. On block we fall
-//! back to `.rss` (with NULL metrics) — the caller logs the bypass; never silent.
+//! JSON endpoint for `score`/`num_comments`/`upvote_ratio` and read `selftext`. The public JSON
+//! endpoint is unauthenticated and Reddit rate-limits/blocks it aggressively; when a Reddit
+//! account is connected instance-wide (`oauth::reddit_polling_token`) the scheduler prefers the
+//! authenticated `oauth.reddit.com` endpoint instead, which isn't subject to that blocking. Only
+//! when neither works do we fall back to `.rss` (with NULL metrics) - the caller logs the bypass;
+//! never silent.
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::settings::IngestSettings;
+use super::settings::{IngestSettings, USER_AGENT};
 use super::{content, dedup_key, ParsedItem};
 
 /// Extract the subreddit name from any reddit URL (`…/r/<sub>/…`).
@@ -14,7 +18,10 @@ pub fn subreddit_from_url(url: &str) -> Option<String> {
     let lower = url.to_ascii_lowercase();
     let idx = lower.find("/r/")?;
     let rest = &url[idx + 3..];
-    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
     if name.is_empty() {
         None
     } else {
@@ -27,13 +34,48 @@ pub fn json_url(subreddit: &str) -> String {
     format!("https://www.reddit.com/r/{subreddit}/top.json?t=week&limit=50")
 }
 
+/// The authenticated equivalent of `json_url`, hit with a Bearer token via `fetch_authenticated`.
+pub fn oauth_url(subreddit: &str) -> String {
+    format!("https://oauth.reddit.com/r/{subreddit}/top?t=week&limit=50&raw_json=1")
+}
+
 /// The `.rss` fallback URL.
 pub fn rss_url(subreddit: &str) -> String {
     format!("https://www.reddit.com/r/{subreddit}/.rss")
 }
 
+/// Fetch a subreddit listing via Reddit's authenticated API using a caller-supplied access
+/// token (from `oauth::reddit_polling_token`). Not subject to the public JSON endpoint's
+/// blocking, so score/comment data stays reliable. Returns the raw listing body for
+/// `parse_listing`.
+pub async fn fetch_authenticated(
+    http: &reqwest::Client,
+    subreddit: &str,
+    access_token: &str,
+) -> Result<Vec<u8>> {
+    let res = http
+        .get(oauth_url(subreddit))
+        .bearer_auth(access_token)
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .send()
+        .await
+        .context("reddit OAuth request failed")?;
+    if !res.status().is_success() {
+        anyhow::bail!("reddit OAuth endpoint returned {}", res.status());
+    }
+    Ok(res
+        .bytes()
+        .await
+        .context("reddit OAuth body read failed")?
+        .to_vec())
+}
+
 /// Parse a Reddit JSON listing into items with score/comments/upvote_ratio populated.
-pub fn parse_listing(bytes: &[u8], cfg: &IngestSettings, fetched_at: DateTime<Utc>) -> Result<Vec<ParsedItem>> {
+pub fn parse_listing(
+    bytes: &[u8],
+    cfg: &IngestSettings,
+    fetched_at: DateTime<Utc>,
+) -> Result<Vec<ParsedItem>> {
     let root: Value = serde_json::from_slice(bytes).context("reddit JSON parse failed")?;
     let children = root
         .get("data")
@@ -74,7 +116,11 @@ fn parse_post(d: &Value, cfg: &IngestSettings, fetched_at: DateTime<Utc>) -> Par
             .map(|p| format!("<p>{}</p>", html_escape(p)))
             .collect::<String>()
     } else if let Some(ext) = external_url.clone().filter(|u| u.starts_with("http")) {
-        format!("<p><a href=\"{}\">{}</a></p>", html_escape(&ext), html_escape(&ext))
+        format!(
+            "<p><a href=\"{}\">{}</a></p>",
+            html_escape(&ext),
+            html_escape(&ext)
+        )
     } else {
         String::new()
     };
@@ -84,7 +130,12 @@ fn parse_post(d: &Value, cfg: &IngestSettings, fetched_at: DateTime<Utc>) -> Par
 
     let thumbnail = str_of("thumbnail").filter(|t| t.starts_with("http"));
     let guid = id.as_deref().map(|i| format!("t3_{i}"));
-    let dedup_hash = dedup_key(guid.as_deref(), permalink.as_deref(), title.as_deref(), Some(&content_text));
+    let dedup_hash = dedup_key(
+        guid.as_deref(),
+        permalink.as_deref(),
+        title.as_deref(),
+        Some(&content_text),
+    );
     let reading_time_secs = Some(content::reading_time_secs(&content_text));
 
     ParsedItem {
@@ -117,9 +168,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn oauth_url_hits_the_authenticated_host_with_raw_json() {
+        let url = oauth_url("rust");
+        assert_eq!(
+            url,
+            "https://oauth.reddit.com/r/rust/top?t=week&limit=50&raw_json=1"
+        );
+    }
+
+    #[test]
     fn extracts_subreddit_name() {
-        assert_eq!(subreddit_from_url("https://www.reddit.com/r/programming/.rss"), Some("programming".into()));
-        assert_eq!(subreddit_from_url("https://reddit.com/r/MachineLearning/top.json?t=week"), Some("MachineLearning".into()));
+        assert_eq!(
+            subreddit_from_url("https://www.reddit.com/r/programming/.rss"),
+            Some("programming".into())
+        );
+        assert_eq!(
+            subreddit_from_url("https://reddit.com/r/MachineLearning/top.json?t=week"),
+            Some("MachineLearning".into())
+        );
         assert_eq!(subreddit_from_url("https://example.com/feed"), None);
     }
 

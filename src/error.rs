@@ -20,10 +20,10 @@ pub enum AppError {
     BadRequest(String),
     #[error("registration is disabled")]
     RegistrationDisabled,
-    /// 502 — an upstream dependency (e.g. an AI provider) failed. Message is user-safe (no secrets).
+    /// 502 - an upstream dependency (e.g. an AI provider) failed. Message is user-safe (no secrets).
     #[error("{0}")]
     Upstream(String),
-    /// 500 — the message is logged but a generic body is returned.
+    /// 500 - the message is logged but a generic body is returned.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -40,9 +40,10 @@ impl AppError {
                 (StatusCode::FORBIDDEN, "registration is disabled".into())
             }
             AppError::Upstream(m) => (StatusCode::BAD_GATEWAY, m.clone()),
-            AppError::Internal(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".into())
-            }
+            AppError::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".into(),
+            ),
         }
     }
 }

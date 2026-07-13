@@ -92,6 +92,24 @@ impl Cron {
     fn summary_fallback(&self) -> String {
         "custom cron".to_string()
     }
+
+    /// The next minute (strictly after `after`) at which this schedule matches. Searches forward
+    /// minute-by-minute, capped at ~2 years so a schedule that can never match (e.g. day-of-month
+    /// 31 combined with a month restriction that never has one) returns `None` instead of looping
+    /// forever.
+    pub fn next_after<Tz: chrono::TimeZone>(&self, after: &chrono::DateTime<Tz>) -> Option<chrono::DateTime<Tz>> {
+        const MAX_MINUTES: i64 = 366 * 24 * 60 * 2;
+        let mut candidate = after.clone() + chrono::Duration::minutes(1);
+        candidate -= chrono::Duration::seconds(candidate.second() as i64)
+            + chrono::Duration::nanoseconds(candidate.nanosecond() as i64);
+        for _ in 0..MAX_MINUTES {
+            if self.matches(&candidate) {
+                return Some(candidate);
+            }
+            candidate += chrono::Duration::minutes(1);
+        }
+        None
+    }
 }
 
 impl Field {
@@ -214,6 +232,31 @@ mod tests {
         let ny: Tz = "America/New_York".parse().unwrap();
         let c = Cron::parse("0 9 * * *").unwrap();
         assert!(c.matches(&at(ny, 2024, 3, 10, 9, 0)));
+    }
+
+    #[test]
+    fn next_after_finds_the_following_occurrence() {
+        let daily = Cron::parse("0 5 * * *").unwrap();
+        // Same day, before the fire time → later today.
+        assert_eq!(
+            daily.next_after(&at(Tz::UTC, 2024, 1, 1, 4, 30)),
+            Some(at(Tz::UTC, 2024, 1, 1, 5, 0))
+        );
+        // Exactly at the fire time → "next" is strictly after, so tomorrow.
+        assert_eq!(
+            daily.next_after(&at(Tz::UTC, 2024, 1, 1, 5, 0)),
+            Some(at(Tz::UTC, 2024, 1, 2, 5, 0))
+        );
+        // Sub-minute precision on `after` is truncated away, not skipped past.
+        let with_seconds = at(Tz::UTC, 2024, 1, 1, 4, 59) + chrono::Duration::seconds(30);
+        assert_eq!(daily.next_after(&with_seconds), Some(at(Tz::UTC, 2024, 1, 1, 5, 0)));
+
+        let weekly_mon = Cron::parse("0 9 * * 1").unwrap();
+        // 2024-01-01 is a Monday; asking right after that fire jumps a full week forward.
+        assert_eq!(
+            weekly_mon.next_after(&at(Tz::UTC, 2024, 1, 1, 9, 0)),
+            Some(at(Tz::UTC, 2024, 1, 8, 9, 0))
+        );
     }
 
     #[test]

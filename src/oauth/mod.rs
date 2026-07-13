@@ -1,14 +1,14 @@
-//! OAuth import helpers for YouTube + Reddit (prompt.md §3, §8, §9.7 — Stretch S4).
+//! OAuth import helpers for YouTube + Reddit (prompt.md §3, §8, §9.7 - Stretch S4).
 //!
 //! A user links their Google/Reddit account **once**; Digestly stores only the encrypted refresh
 //! token (per-user) and offers a repeatable **"Sync now"** that imports their subscribed channels /
 //! subreddits as per-channel RSS feeds, **adding only the ones they don't already have**. Polling
-//! itself always uses plain RSS/JSON afterward — the OAuth token is used only at sync time.
+//! itself always uses plain RSS/JSON afterward - the OAuth token is used only at sync time.
 //!
 //! Split of concerns:
-//! * network (authorize URL, code↔token exchange, refresh, listing subscriptions) — provider-
+//! * network (authorize URL, code↔token exchange, refresh, listing subscriptions) - provider-
 //!   specific, needs live credentials, not unit-tested here;
-//! * `reconcile` (add-missing into the user's subscriptions) + the subscription→feed-URL mapping —
+//! * `reconcile` (add-missing into the user's subscriptions) + the subscription→feed-URL mapping -
 //!   pure DB/string logic, covered by tests.
 
 use std::collections::HashMap;
@@ -77,7 +77,11 @@ impl OAuthSettings {
 
     /// Redirect URI registered in the provider console: `{origin}/api/oauth/{provider}/callback`.
     pub fn redirect_uri(&self, provider: Provider) -> String {
-        format!("{}/api/oauth/{}/callback", self.redirect_base.trim_end_matches('/'), provider.as_str())
+        format!(
+            "{}/api/oauth/{}/callback",
+            self.redirect_base.trim_end_matches('/'),
+            provider.as_str()
+        )
     }
 }
 
@@ -105,7 +109,14 @@ impl OAuthStates {
         let now = Instant::now();
         let mut map = self.0.lock().expect("oauth state store poisoned");
         map.retain(|_, p| now.duration_since(p.created) < STATE_TTL);
-        map.insert(state.clone(), PendingState { user_id, provider, created: now });
+        map.insert(
+            state.clone(),
+            PendingState {
+                user_id,
+                provider,
+                created: now,
+            },
+        );
         state
     }
 
@@ -168,13 +179,26 @@ pub async fn reconcile(
 ) -> ApiResult<SyncOutcome> {
     let mut added = 0usize;
     for s in subs {
-        let inserted =
-            feeds::subscribe_url(pool, cfg, user_id, &s.feed_url, s.kind, category_id, Some(&s.title), false).await?;
+        let inserted = feeds::subscribe_url(
+            pool,
+            cfg,
+            user_id,
+            &s.feed_url,
+            s.kind,
+            category_id,
+            Some(&s.title),
+            false,
+        )
+        .await?;
         if inserted {
             added += 1;
         }
     }
-    Ok(SyncOutcome { added, skipped: subs.len() - added, total: subs.len() })
+    Ok(SyncOutcome {
+        added,
+        skipped: subs.len() - added,
+        total: subs.len(),
+    })
 }
 
 // ── Token persistence (encrypted, per-user, write-only) ──────────────────────
@@ -228,11 +252,12 @@ pub async fn load_refresh_token(
     user_id: i64,
     provider: Provider,
 ) -> Result<Option<String>> {
-    let row = sqlx::query("SELECT refresh_token_enc FROM user_oauth WHERE user_id = ? AND provider = ?")
-        .bind(user_id)
-        .bind(provider.as_str())
-        .fetch_optional(pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT refresh_token_enc FROM user_oauth WHERE user_id = ? AND provider = ?")
+            .bind(user_id)
+            .bind(provider.as_str())
+            .fetch_optional(pool)
+            .await?;
     match row {
         Some(r) => {
             let blob: Vec<u8> = r.get("refresh_token_enc");
@@ -240,6 +265,41 @@ pub async fn load_refresh_token(
         }
         None => Ok(None),
     }
+}
+
+/// Best-effort: trade a connected Reddit account's stored refresh token for a fresh access token,
+/// so the scheduler can poll via Reddit's authenticated API instead of the public JSON endpoint,
+/// which Reddit blocks/rate-limits aggressively when unauthenticated. Returns `None` on any
+/// failure (no connection, revoked token, network error) - the caller falls back to the public
+/// endpoint; never fatal.
+///
+/// **The connection is used instance-wide.** Feeds and items are shared across all users (see
+/// `routes::items`), so subreddit polling is a single global job with no user to attribute it to;
+/// it borrows the credential of the longest-connected Reddit account (lowest `user_id`, so the
+/// choice is stable rather than whatever SQLite happens to return first). Only public subreddit
+/// listings are ever requested with it - the same data the anonymous endpoint serves, just not
+/// throttled. Users are told this in the Connected accounts UI (`ConnectedAccounts.tsx`).
+pub async fn reddit_polling_token(
+    pool: &SqlitePool,
+    enc_key: &[u8; 32],
+    http: &reqwest::Client,
+    client: &OAuthClient,
+) -> Option<String> {
+    let row = sqlx::query(
+        "SELECT user_id FROM user_oauth WHERE provider = 'reddit' ORDER BY user_id LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+    let user_id: i64 = row.get("user_id");
+    let refresh = load_refresh_token(pool, enc_key, user_id, Provider::Reddit)
+        .await
+        .ok()
+        .flatten()?;
+    access_token(http, Provider::Reddit, client, &refresh)
+        .await
+        .ok()
 }
 
 pub async fn delete_connection(pool: &SqlitePool, user_id: i64, provider: Provider) -> Result<()> {
@@ -252,11 +312,13 @@ pub async fn delete_connection(pool: &SqlitePool, user_id: i64, provider: Provid
 }
 
 pub async fn touch_synced(pool: &SqlitePool, user_id: i64, provider: Provider) -> Result<()> {
-    sqlx::query("UPDATE user_oauth SET last_sync_at = datetime('now') WHERE user_id = ? AND provider = ?")
-        .bind(user_id)
-        .bind(provider.as_str())
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE user_oauth SET last_sync_at = datetime('now') WHERE user_id = ? AND provider = ?",
+    )
+    .bind(user_id)
+    .bind(provider.as_str())
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -286,7 +348,7 @@ pub async fn status_for(
     Ok(out)
 }
 
-// ── Provider network calls (need live credentials — not unit-tested here) ────
+// ── Provider network calls (need live credentials - not unit-tested here) ────
 
 #[derive(Deserialize)]
 struct TokenResponse {
@@ -298,7 +360,12 @@ struct TokenResponse {
 }
 
 /// Build the provider's consent URL for the given `state` and redirect URI.
-pub fn authorize_url(provider: Provider, client: &OAuthClient, redirect_uri: &str, state: &str) -> String {
+pub fn authorize_url(
+    provider: Provider,
+    client: &OAuthClient,
+    redirect_uri: &str,
+    state: &str,
+) -> String {
     let enc = |s: &str| url_encode(s);
     match provider {
         Provider::Youtube => format!(
@@ -327,15 +394,22 @@ pub async fn exchange_code(
     redirect_uri: &str,
     code: &str,
 ) -> Result<(String, Option<String>)> {
-    let token = request_token(http, provider, client, &[
-        ("grant_type", "authorization_code"),
-        ("code", code),
-        ("redirect_uri", redirect_uri),
-    ])
+    let token = request_token(
+        http,
+        provider,
+        client,
+        &[
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+        ],
+    )
     .await?;
-    let refresh = token
-        .refresh_token
-        .ok_or_else(|| anyhow!("provider did not return a refresh token (was consent granted with offline access?)"))?;
+    let refresh = token.refresh_token.ok_or_else(|| {
+        anyhow!(
+            "provider did not return a refresh token (was consent granted with offline access?)"
+        )
+    })?;
     Ok((refresh, token.scope))
 }
 
@@ -346,10 +420,15 @@ async fn access_token(
     client: &OAuthClient,
     refresh_token: &str,
 ) -> Result<String> {
-    let token = request_token(http, provider, client, &[
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token),
-    ])
+    let token = request_token(
+        http,
+        provider,
+        client,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ],
+    )
     .await?;
     Ok(token.access_token)
 }
@@ -377,11 +456,17 @@ async fn request_token(
             req = req.basic_auth(&client.client_id, Some(&client.client_secret));
         }
     }
-    let res = req.form(&form).send().await.context("OAuth token request failed")?;
+    let res = req
+        .form(&form)
+        .send()
+        .await
+        .context("OAuth token request failed")?;
     if !res.status().is_success() {
         return Err(anyhow!("OAuth token endpoint returned {}", res.status()));
     }
-    res.json::<TokenResponse>().await.context("could not parse OAuth token response")
+    res.json::<TokenResponse>()
+        .await
+        .context("could not parse OAuth token response")
 }
 
 /// Fetch the user's subscribed channels/subreddits, mapped to Digestly feeds.
@@ -405,7 +490,9 @@ pub async fn fetch_account_label(
     client: &OAuthClient,
     refresh_token: &str,
 ) -> Option<String> {
-    let token = access_token(http, provider, client, refresh_token).await.ok()?;
+    let token = access_token(http, provider, client, refresh_token)
+        .await
+        .ok()?;
     match provider {
         Provider::Reddit => {
             #[derive(Deserialize)]
@@ -428,7 +515,10 @@ pub async fn fetch_account_label(
     }
 }
 
-async fn fetch_youtube_subscriptions(http: &reqwest::Client, token: &str) -> Result<Vec<RemoteSubscription>> {
+async fn fetch_youtube_subscriptions(
+    http: &reqwest::Client,
+    token: &str,
+) -> Result<Vec<RemoteSubscription>> {
     #[derive(Deserialize)]
     struct Page {
         items: Vec<Item>,
@@ -461,13 +551,22 @@ async fn fetch_youtube_subscriptions(http: &reqwest::Client, token: &str) -> Res
         if let Some(pt) = &page_token {
             req = req.query(&[("pageToken", pt.as_str())]);
         }
-        let res = req.send().await.context("YouTube subscriptions request failed")?;
+        let res = req
+            .send()
+            .await
+            .context("YouTube subscriptions request failed")?;
         if !res.status().is_success() {
             return Err(anyhow!("YouTube subscriptions returned {}", res.status()));
         }
-        let page: Page = res.json().await.context("could not parse YouTube subscriptions")?;
+        let page: Page = res
+            .json()
+            .await
+            .context("could not parse YouTube subscriptions")?;
         for item in page.items {
-            out.push(youtube_subscription(&item.snippet.resource_id.channel_id, &item.snippet.title));
+            out.push(youtube_subscription(
+                &item.snippet.resource_id.channel_id,
+                &item.snippet.title,
+            ));
         }
         match page.next_page_token {
             Some(t) => page_token = Some(t),
@@ -477,7 +576,10 @@ async fn fetch_youtube_subscriptions(http: &reqwest::Client, token: &str) -> Res
     Ok(out)
 }
 
-async fn fetch_reddit_subscriptions(http: &reqwest::Client, token: &str) -> Result<Vec<RemoteSubscription>> {
+async fn fetch_reddit_subscriptions(
+    http: &reqwest::Client,
+    token: &str,
+) -> Result<Vec<RemoteSubscription>> {
     #[derive(Deserialize)]
     struct Listing {
         data: ListingData,
@@ -507,11 +609,17 @@ async fn fetch_reddit_subscriptions(http: &reqwest::Client, token: &str) -> Resu
         if let Some(a) = &after {
             req = req.query(&[("after", a.as_str())]);
         }
-        let res = req.send().await.context("Reddit subscriptions request failed")?;
+        let res = req
+            .send()
+            .await
+            .context("Reddit subscriptions request failed")?;
         if !res.status().is_success() {
             return Err(anyhow!("Reddit subscriptions returned {}", res.status()));
         }
-        let listing: Listing = res.json().await.context("could not parse Reddit subscriptions")?;
+        let listing: Listing = res
+            .json()
+            .await
+            .context("could not parse Reddit subscriptions")?;
         for child in listing.data.children {
             out.push(reddit_subscription(&child.data.display_name));
         }
@@ -528,7 +636,9 @@ fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
@@ -542,7 +652,10 @@ mod tests {
     #[test]
     fn youtube_and_reddit_map_to_the_polled_feed_urls() {
         let yt = youtube_subscription("UC_x5XG1OV2P6uZZ5FSM9Ttw", "Google Developers");
-        assert_eq!(yt.feed_url, "https://www.youtube.com/feeds/videos.xml?channel_id=UC_x5XG1OV2P6uZZ5FSM9Ttw");
+        assert_eq!(
+            yt.feed_url,
+            "https://www.youtube.com/feeds/videos.xml?channel_id=UC_x5XG1OV2P6uZZ5FSM9Ttw"
+        );
         assert_eq!(yt.kind, FeedKind::Youtube);
 
         let rd = reddit_subscription("rust");
@@ -553,8 +666,16 @@ mod tests {
 
     #[test]
     fn authorize_urls_carry_state_and_offline_access() {
-        let client = OAuthClient { client_id: "cid".into(), client_secret: "sec".into() };
-        let yt = authorize_url(Provider::Youtube, &client, "https://h.example/api/oauth/youtube/callback", "st8");
+        let client = OAuthClient {
+            client_id: "cid".into(),
+            client_secret: "sec".into(),
+        };
+        let yt = authorize_url(
+            Provider::Youtube,
+            &client,
+            "https://h.example/api/oauth/youtube/callback",
+            "st8",
+        );
         assert!(yt.contains("access_type=offline"));
         assert!(yt.contains("state=st8"));
         assert!(yt.contains("client_id=cid"));
@@ -562,7 +683,12 @@ mod tests {
         // The secret must never appear in the front-channel URL.
         assert!(!yt.contains("sec"));
 
-        let rd = authorize_url(Provider::Reddit, &client, "https://h.example/api/oauth/reddit/callback", "st8");
+        let rd = authorize_url(
+            Provider::Reddit,
+            &client,
+            "https://h.example/api/oauth/reddit/callback",
+            "st8",
+        );
         assert!(rd.contains("duration=permanent"));
         assert!(rd.contains("mysubreddits"));
         assert!(!rd.contains("sec"));

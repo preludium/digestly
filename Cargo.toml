@@ -3,7 +3,7 @@ name = "digestly"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.86"
-description = "Digestly — self-hosted RSS/YouTube/Reddit reader + AI digest"
+description = "Digestly - self-hosted RSS/YouTube/Reddit reader + AI digest"
 license = "MIT"
 
 [[bin]]
@@ -32,7 +32,7 @@ chacha20poly1305 = "0.10.1"
 # sign-count regression (cloned-authenticator detection) internally; we mirror it explicitly.
 # Pinned (Global Rule #4). Reg/auth ceremony state is held in-process, so no serde feature is
 # needed; only the resulting `Passkey` credential is serialized into the `passkeys.public_key` blob.
-# `conditional-ui` enables the discoverable-credential (autofill/Conditional UI) login flow — a
+# `conditional-ui` enables the discoverable-credential (autofill/Conditional UI) login flow - a
 # crate-designated preview feature, pinned via Cargo.lock like everything else.
 webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
 
@@ -51,7 +51,7 @@ scraper = "0.21.0"
 url = "2.5.2"
 futures-util = "0.3.31"
 
-# OPML parsing (Phase 7): a proper read-only XML tree — html5ever/scraper mangles OPML's
+# OPML parsing (Phase 7): a proper read-only XML tree - html5ever/scraper mangles OPML's
 # non-void <outline> nesting. Pure-Rust, no extra system deps. Pinned (Global Rule #4).
 roxmltree = "0.20.0"
 

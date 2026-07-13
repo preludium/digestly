@@ -20,7 +20,10 @@ pub fn routes() -> Router<AppState> {
         .route("/feeds/discover", post(discover_feeds))
         .route("/feeds/health", get(health))
         .route("/feeds/refresh-all", post(refresh_all))
-        .route("/feeds/:id", axum::routing::patch(update_feed).delete(unsubscribe))
+        .route(
+            "/feeds/:id",
+            axum::routing::patch(update_feed).delete(unsubscribe),
+        )
         .route("/feeds/:id/refresh", post(refresh_feed))
 }
 
@@ -40,7 +43,7 @@ struct DiscoverCandidate {
     already_subscribed: bool,
 }
 
-/// `POST /api/feeds/discover` — resolve arbitrary input to feed candidates (§9.3).
+/// `POST /api/feeds/discover` - resolve arbitrary input to feed candidates (§9.3).
 async fn discover_feeds(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -53,8 +56,13 @@ async fn discover_feeds(
 
     let mut out = Vec::with_capacity(candidates.len());
     for candidate in candidates {
-        let already_subscribed = existing_subscription(&state.pool, user.id, &candidate.feed_url).await?.is_some();
-        out.push(DiscoverCandidate { candidate, already_subscribed });
+        let already_subscribed = existing_subscription(&state.pool, user.id, &candidate.feed_url)
+            .await?
+            .is_some();
+        out.push(DiscoverCandidate {
+            candidate,
+            already_subscribed,
+        });
     }
     Ok(Json(out))
 }
@@ -85,7 +93,7 @@ struct SubscribeBody {
     fetch_interval_secs: Option<i64>,
 }
 
-/// `POST /api/feeds` — subscribe the user to a feed (creating the global feed row if new).
+/// `POST /api/feeds` - subscribe the user to a feed (creating the global feed row if new).
 async fn subscribe(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -98,12 +106,26 @@ async fn subscribe(
         .ok_or_else(|| AppError::BadRequest("invalid feed URL".into()))?;
 
     // Dedupe against an already-subscribed feed (http/https/trailing-slash variants).
-    if existing_subscription(&state.pool, user.id, &feed_url).await?.is_some() {
-        return Err(AppError::Conflict("you are already subscribed to this feed".into()));
+    if existing_subscription(&state.pool, user.id, &feed_url)
+        .await?
+        .is_some()
+    {
+        return Err(AppError::Conflict(
+            "you are already subscribed to this feed".into(),
+        ));
     }
 
     let cfg = IngestSettings::load(&state.pool).await;
-    let feed_id = upsert_feed(&state.pool, &feed_url, kind, body.site_url.as_deref(), body.title.as_deref(), &cfg, true).await?;
+    let feed_id = upsert_feed(
+        &state.pool,
+        &feed_url,
+        kind,
+        body.site_url.as_deref(),
+        body.title.as_deref(),
+        &cfg,
+        true,
+    )
+    .await?;
 
     let content_type = body
         .content_type
@@ -134,7 +156,7 @@ async fn subscribe(
             .await?;
     }
 
-    // Poll promptly and wake the scheduler (§4 — new subscription makes the feed eligible).
+    // Poll promptly and wake the scheduler (§4 - new subscription makes the feed eligible).
     mark_due(&state.pool, feed_id).await?;
     state.ingest_trigger.notify_one();
 
@@ -153,7 +175,7 @@ struct UpdateFeedBody {
     fetch_interval_secs: Option<i64>,
 }
 
-/// `PATCH /api/feeds/{id}` — edit the user's subscription (§9.4). Category stays required.
+/// `PATCH /api/feeds/{id}` - edit the user's subscription (§9.4). Category stays required.
 async fn update_feed(
     user: CurrentUser,
     State(state): State<AppState>,
@@ -165,39 +187,65 @@ async fn update_feed(
     if let Some(cat) = body.category_id {
         require_category(&state.pool, user.id, cat).await?;
         sqlx::query("UPDATE subscriptions SET category_id = ? WHERE id = ? AND user_id = ?")
-            .bind(cat).bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(cat)
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(ct) = body.content_type.filter(|c| c == "reading" || c == "video") {
         sqlx::query("UPDATE subscriptions SET content_type = ? WHERE id = ? AND user_id = ?")
-            .bind(ct).bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(ct)
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(ms) = body.min_score {
         sqlx::query("UPDATE subscriptions SET min_score = ? WHERE id = ? AND user_id = ?")
-            .bind(ms.max(0)).bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(ms.max(0))
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(ft) = body.full_text_extract {
         sqlx::query("UPDATE subscriptions SET full_text_extract = ? WHERE id = ? AND user_id = ?")
-            .bind(ft as i64).bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(ft as i64)
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(dis) = body.disabled {
         sqlx::query("UPDATE subscriptions SET disabled = ? WHERE id = ? AND user_id = ?")
-            .bind(dis as i64).bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(dis as i64)
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(t) = body.title_override {
         let val = t.trim().to_string();
         sqlx::query("UPDATE subscriptions SET title_override = ? WHERE id = ? AND user_id = ?")
             .bind(if val.is_empty() { None } else { Some(val) })
-            .bind(id).bind(user.id).execute(&state.pool).await?;
+            .bind(id)
+            .bind(user.id)
+            .execute(&state.pool)
+            .await?;
     }
     if let Some(interval) = body.fetch_interval_secs.filter(|i| *i >= 60) {
         sqlx::query("UPDATE feeds SET fetch_interval_secs = ? WHERE id = ?")
-            .bind(interval).bind(feed_id).execute(&state.pool).await?;
+            .bind(interval)
+            .bind(feed_id)
+            .execute(&state.pool)
+            .await?;
     }
 
     Ok(Json(fetch_feed_dto(&state.pool, user.id, id).await?))
 }
 
-/// `DELETE /api/feeds/{id}` — unsubscribe. The global feed keeps its items; it just stops being
+/// `DELETE /api/feeds/{id}` - unsubscribe. The global feed keeps its items; it just stops being
 /// polled once it has no active subscriptions (§4, §11).
 async fn unsubscribe(
     user: CurrentUser,
@@ -206,11 +254,14 @@ async fn unsubscribe(
 ) -> ApiResult<Json<serde_json::Value>> {
     owned_subscription_feed(&state.pool, user.id, id).await?;
     sqlx::query("DELETE FROM subscriptions WHERE id = ? AND user_id = ?")
-        .bind(id).bind(user.id).execute(&state.pool).await?;
+        .bind(id)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `POST /api/feeds/{id}/refresh` — poll now; also re-enables + clears backoff so this doubles as
+/// `POST /api/feeds/{id}/refresh` - poll now; also re-enables + clears backoff so this doubles as
 /// the health page's "retry now / re-enable" action (§9.6).
 async fn refresh_feed(
     user: CurrentUser,
@@ -229,10 +280,13 @@ async fn refresh_feed(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `POST /api/feeds/refresh-all` — re-poll every feed the user is subscribed to, in one DB write
+/// `POST /api/feeds/refresh-all` - re-poll every feed the user is subscribed to, in one DB write
 /// and one scheduler wakeup (§9.0 top-bar "Refresh all"). Scoped to the caller's own subscriptions
-/// only — `feeds` is shared across users.
-async fn refresh_all(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<serde_json::Value>> {
+/// only - `feeds` is shared across users.
+async fn refresh_all(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<serde_json::Value>> {
     let n = sqlx::query(
         "UPDATE feeds SET disabled = 0, failure_count = 0, last_error = NULL, next_fetch_at = datetime('now')
          WHERE id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)",
@@ -313,8 +367,11 @@ fn row_to_dto(r: &sqlx::sqlite::SqliteRow) -> FeedDto {
     }
 }
 
-/// `GET /api/feeds` — the user's subscriptions (§9.5).
-async fn list_feeds(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<Vec<FeedDto>>> {
+/// `GET /api/feeds` - the user's subscriptions (§9.5).
+async fn list_feeds(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<FeedDto>>> {
     let rows = sqlx::query(&format!("{FEED_SELECT} ORDER BY c.position, title"))
         .bind(user.id)
         .fetch_all(&state.pool)
@@ -336,13 +393,18 @@ struct HealthDto {
     last_error: Option<String>,
 }
 
-/// `GET /api/feeds/health` — per-user feed diagnostics (§9.6). Failing/disabled feeds are surfaced
+/// `GET /api/feeds/health` - per-user feed diagnostics (§9.6). Failing/disabled feeds are surfaced
 /// here, never silently dropped.
-async fn health(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<Vec<HealthDto>>> {
-    let rows = sqlx::query(&format!("{FEED_SELECT} ORDER BY f.disabled DESC, f.failure_count DESC, title"))
-        .bind(user.id)
-        .fetch_all(&state.pool)
-        .await?;
+async fn health(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<HealthDto>>> {
+    let rows = sqlx::query(&format!(
+        "{FEED_SELECT} ORDER BY f.disabled DESC, f.failure_count DESC, title"
+    ))
+    .bind(user.id)
+    .fetch_all(&state.pool)
+    .await?;
 
     let out = rows
         .iter()
@@ -378,7 +440,11 @@ async fn health(user: CurrentUser, State(state): State<AppState>) -> ApiResult<J
 // ---------------------------------------------------------------------------
 
 /// Whether the user is already subscribed to `feed_url` (any scheme variant). Used by OPML preview.
-pub(crate) async fn is_subscribed(pool: &SqlitePool, user_id: i64, feed_url: &str) -> ApiResult<bool> {
+pub(crate) async fn is_subscribed(
+    pool: &SqlitePool,
+    user_id: i64,
+    feed_url: &str,
+) -> ApiResult<bool> {
     match url_util::normalize_url(feed_url) {
         Some(u) => Ok(existing_subscription(pool, user_id, &u).await?.is_some()),
         None => Ok(false),
@@ -389,7 +455,7 @@ pub(crate) async fn is_subscribed(pool: &SqlitePool, user_id: i64, feed_url: &st
 /// Idempotent: returns `false` (skipped) if the user is already subscribed. When `poll_immediately`
 /// is true, marks the feed due so the scheduler picks it up right away; callers do a single
 /// `ingest_trigger.notify_one()` after a batch. Shared by OPML import (§9.5), onboarding starter
-/// feeds (§9.11, both `poll_immediately: true`), and OAuth sync (§3, `poll_immediately: false` —
+/// feeds (§9.11, both `poll_immediately: true`), and OAuth sync (§3, `poll_immediately: false` -
 /// creates the subscription without an immediate backlog poll).
 pub(crate) async fn subscribe_url(
     pool: &SqlitePool,
@@ -405,7 +471,10 @@ pub(crate) async fn subscribe_url(
         Some(u) => u,
         None => return Ok(false),
     };
-    if existing_subscription(pool, user_id, &feed_url).await?.is_some() {
+    if existing_subscription(pool, user_id, &feed_url)
+        .await?
+        .is_some()
+    {
         return Ok(false);
     }
     let feed_id = upsert_feed(pool, &feed_url, kind, None, title, cfg, poll_immediately).await?;
@@ -427,7 +496,7 @@ pub(crate) async fn subscribe_url(
 
 /// Find-or-create the global feed for a normalized URL (dedupe across http/https variants).
 /// `poll_immediately` controls whether a brand-new feed row is due right now (manual add-feed,
-/// OPML import) or only after one normal interval (OAuth sync — §3 fix: sync should create the
+/// OPML import) or only after one normal interval (OAuth sync - §3 fix: sync should create the
 /// subscription without dumping the channel's historical backlog into the dashboard).
 async fn upsert_feed(
     pool: &SqlitePool,
@@ -447,25 +516,48 @@ async fn upsert_feed(
             return Ok(row.get("id"));
         }
     }
-    let offset = if poll_immediately {
-        "+0 seconds".to_string()
+    let next_fetch_at = if poll_immediately {
+        chrono::Utc::now()
     } else {
-        format!("+{} seconds", cfg.default_interval_secs)
+        default_next_fetch_at(pool, cfg).await
     };
     let id: i64 = sqlx::query(
         "INSERT INTO feeds (feed_url, site_url, title, kind, fetch_interval_secs, next_fetch_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now', ?)) RETURNING id",
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(feed_url)
     .bind(site_url)
     .bind(title.filter(|s| !s.trim().is_empty()))
     .bind(kind.as_str())
     .bind(cfg.default_interval_secs)
-    .bind(offset)
+    .bind(next_fetch_at.format("%Y-%m-%d %H:%M:%S").to_string())
     .fetch_one(pool)
     .await?
     .get("id");
     Ok(id)
+}
+
+/// First-poll time for a feed created without an immediate fetch (OAuth sync - keeps the
+/// no-backlog-dump behavior). Anchored to `digest::PREFETCH_BUFFER_SECS` before the digest's next
+/// scheduled run so it's fresh in time for that run, falling back to the plain default interval
+/// if the digest is disabled, its cron is unparseable, or the buffer would land in the past
+/// (would otherwise dump the channel's backlog immediately, defeating the point of this path).
+async fn default_next_fetch_at(
+    pool: &SqlitePool,
+    cfg: &IngestSettings,
+) -> chrono::DateTime<chrono::Utc> {
+    let now = chrono::Utc::now();
+    let digest_cfg = crate::digest::DigestConfig::load(pool).await;
+    if digest_cfg.enabled {
+        if let Some(next_run) = digest_cfg.next_run_at(now) {
+            let anchor =
+                next_run - chrono::Duration::seconds(crate::digest::PREFETCH_BUFFER_SECS);
+            if anchor > now {
+                return anchor;
+            }
+        }
+    }
+    now + chrono::Duration::seconds(cfg.default_interval_secs)
 }
 
 /// Return the feed_id of a subscription owned by this user, or 404.
@@ -480,7 +572,11 @@ async fn owned_subscription_feed(pool: &SqlitePool, user_id: i64, sub_id: i64) -
 }
 
 /// The user's subscription for a feed URL (any scheme variant), if any.
-async fn existing_subscription(pool: &SqlitePool, user_id: i64, feed_url: &str) -> ApiResult<Option<i64>> {
+async fn existing_subscription(
+    pool: &SqlitePool,
+    user_id: i64,
+    feed_url: &str,
+) -> ApiResult<Option<i64>> {
     for variant in url_util::scheme_variants(feed_url) {
         if let Some(row) = sqlx::query(
             "SELECT s.id FROM subscriptions s JOIN feeds f ON f.id = s.feed_id

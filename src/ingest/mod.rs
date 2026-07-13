@@ -1,4 +1,4 @@
-//! Shared ingestion engine (prompt.md §4, §5) — the heart of the app. Feeds are polled **once**
+//! Shared ingestion engine (prompt.md §4, §5) - the heart of the app. Feeds are polled **once**
 //! for all users by a background `tokio` scheduler; one bad feed never crashes the loop.
 //!
 //! Layout: `fetch` (HTTP + conditional GET + redirects + caps), `parse` (feed-rs → items),
@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 pub use scheduler::{spawn, IngestTrigger};
 
-/// Feed source kind — matches the `feeds.kind` CHECK constraint (prompt.md §2).
+/// Feed source kind - matches the `feeds.kind` CHECK constraint (prompt.md §2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FeedKind {
     Rss,
@@ -125,8 +125,12 @@ mod tests {
 
     #[test]
     fn dedup_prefers_guid_then_url_then_hash() {
-        assert_eq!(dedup_key(Some("abc"), Some("http://x"), None, None), "guid:abc");
-        assert!(dedup_key(None, Some("https://x.com/a/"), None, None).starts_with("url:https://x.com/a"));
+        assert_eq!(
+            dedup_key(Some("abc"), Some("http://x"), None, None),
+            "guid:abc"
+        );
+        assert!(dedup_key(None, Some("https://x.com/a/"), None, None)
+            .starts_with("url:https://x.com/a"));
         assert!(dedup_key(None, None, Some("t"), Some("body")).starts_with("hash:"));
         // Same title+content → same hash (stable dedup for GUID-less feeds).
         assert_eq!(

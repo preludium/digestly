@@ -2,7 +2,7 @@
 //!
 //! WAL mode, `busy_timeout`, foreign keys on. Migrations run on boot. Later phases add
 //! more migration files under `/migrations`; they are embedded at compile time by
-//! `sqlx::migrate!` — no live DB needed to build (Global Rule #2).
+//! `sqlx::migrate!` - no live DB needed to build (Global Rule #2).
 
 use std::path::Path;
 use std::str::FromStr;
@@ -47,4 +47,15 @@ pub async fn migrate(pool: &SqlitePool) -> Result<()> {
 /// Cheap liveness probe used by `/api/health`.
 pub async fn ping(pool: &SqlitePool) -> bool {
     sqlx::query("SELECT 1").execute(pool).await.is_ok()
+}
+
+/// A migrated, throwaway SQLite pool for tests. The `TempDir` is leaked on purpose: dropping it
+/// deletes the directory out from under the still-open pool, and the OS cleans `/tmp` anyway.
+#[cfg(test)]
+pub async fn test_pool() -> SqlitePool {
+    let dir = tempfile::tempdir().unwrap();
+    let pool = connect(&dir.path().join("test.db")).await.unwrap();
+    migrate(&pool).await.unwrap();
+    std::mem::forget(dir);
+    pool
 }

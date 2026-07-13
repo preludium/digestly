@@ -2,7 +2,7 @@
 //!
 //! `GET /api/notifications` returns everything **except** the auth token (only `has_token`); `PUT`
 //! accepts a write-only token; `POST /api/notifications/test` sends a test push (never echoes the
-//! token). All scoped to the session user — never a client-supplied id (§11).
+//! token). All scoped to the session user - never a client-supplied id (§11).
 
 use axum::extract::State;
 use axum::routing::{get, post};
@@ -16,7 +16,10 @@ use crate::notify::{self, TokenUpdate};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/notifications", get(get_notifications).put(put_notifications))
+        .route(
+            "/notifications",
+            get(get_notifications).put(put_notifications),
+        )
         .route("/notifications/test", post(test_notifications))
 }
 
@@ -43,8 +46,13 @@ impl From<notify::NotificationConfig> for NotificationsDto {
     }
 }
 
-async fn get_notifications(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<NotificationsDto>> {
-    let cfg = notify::load(&state.pool, user.id).await.map_err(AppError::Internal)?;
+async fn get_notifications(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<NotificationsDto>> {
+    let cfg = notify::load(&state.pool, user.id)
+        .await
+        .map_err(AppError::Internal)?;
     Ok(Json(cfg.into()))
 }
 
@@ -66,7 +74,9 @@ async fn put_notifications(
     Json(body): Json<PutNotifications>,
 ) -> ApiResult<Json<NotificationsDto>> {
     // Preserve unspecified fields by starting from the current config.
-    let current = notify::load(&state.pool, user.id).await.map_err(AppError::Internal)?;
+    let current = notify::load(&state.pool, user.id)
+        .await
+        .map_err(AppError::Internal)?;
 
     let token = match body.auth_token {
         None => TokenUpdate::Keep,
@@ -79,17 +89,22 @@ async fn put_notifications(
         &state.pool,
         &state.enc_key,
         user.id,
-        body.ntfy_server_url.as_deref().or(current.ntfy_server_url.as_deref()),
+        body.ntfy_server_url
+            .as_deref()
+            .or(current.ntfy_server_url.as_deref()),
         body.ntfy_topic.as_deref().or(current.ntfy_topic.as_deref()),
         body.ntfy_priority.unwrap_or(current.ntfy_priority),
         body.notify_on_digest.unwrap_or(current.notify_on_digest),
-        body.notify_on_feed_health.unwrap_or(current.notify_on_feed_health),
+        body.notify_on_feed_health
+            .unwrap_or(current.notify_on_feed_health),
         token,
     )
     .await
     .map_err(AppError::BadRequest)?;
 
-    let updated = notify::load(&state.pool, user.id).await.map_err(AppError::Internal)?;
+    let updated = notify::load(&state.pool, user.id)
+        .await
+        .map_err(AppError::Internal)?;
     Ok(Json(updated.into()))
 }
 
@@ -100,11 +115,17 @@ struct TestResult {
     error: Option<String>,
 }
 
-/// `POST /api/notifications/test` — send a test push; report ok/error. Never echoes the token.
+/// `POST /api/notifications/test` - send a test push; report ok/error. Never echoes the token.
 async fn test_notifications(user: CurrentUser, State(state): State<AppState>) -> Json<TestResult> {
     match notify::test(&state.pool, &state.http_client, &state.enc_key, user.id).await {
-        Ok(()) => Json(TestResult { ok: true, error: None }),
-        Err(e) => Json(TestResult { ok: false, error: Some(e) }),
+        Ok(()) => Json(TestResult {
+            ok: true,
+            error: None,
+        }),
+        Err(e) => Json(TestResult {
+            ok: false,
+            error: Some(e),
+        }),
     }
 }
 

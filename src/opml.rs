@@ -21,17 +21,27 @@ pub struct OpmlFeed {
 
 /// Parse OPML text into feed entries. Skips outlines without an `xmlUrl` (those are folders).
 pub fn parse(xml: &str) -> Vec<OpmlFeed> {
-    let Ok(doc) = roxmltree::Document::parse(xml) else { return Vec::new() };
+    let Ok(doc) = roxmltree::Document::parse(xml) else {
+        return Vec::new();
+    };
 
     let mut out = Vec::new();
     for node in doc.descendants().filter(|n| n.has_tag_name("outline")) {
-        let Some(raw_url) = attr(node, "xmlUrl").or_else(|| attr(node, "xmlurl")) else { continue };
+        let Some(raw_url) = attr(node, "xmlUrl").or_else(|| attr(node, "xmlurl")) else {
+            continue;
+        };
         let feed_url = url_util::normalize_url(&raw_url).unwrap_or(raw_url);
         let title = attr(node, "title").or_else(|| attr(node, "text"));
         let html_url = attr(node, "htmlUrl").or_else(|| attr(node, "htmlurl"));
         let kind = infer_kind(&feed_url, node.attribute("type").unwrap_or_default());
         let category = parent_category(node);
-        out.push(OpmlFeed { title, feed_url, html_url, kind, category });
+        out.push(OpmlFeed {
+            title,
+            feed_url,
+            html_url,
+            kind,
+            category,
+        });
     }
     out
 }
@@ -41,10 +51,16 @@ pub fn build(owner: &str, groups: &[(String, Vec<OpmlFeed>)]) -> String {
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     s.push_str("<opml version=\"2.0\">\n  <head>\n");
-    s.push_str(&format!("    <title>Digestly subscriptions — {}</title>\n", esc(owner)));
+    s.push_str(&format!(
+        "    <title>Digestly subscriptions - {}</title>\n",
+        esc(owner)
+    ));
     s.push_str("  </head>\n  <body>\n");
     for (category, feeds) in groups {
-        s.push_str(&format!("    <outline text=\"{0}\" title=\"{0}\">\n", esc(category)));
+        s.push_str(&format!(
+            "    <outline text=\"{0}\" title=\"{0}\">\n",
+            esc(category)
+        ));
         for f in feeds {
             let title = esc(f.title.as_deref().unwrap_or(&f.feed_url));
             s.push_str(&format!(
@@ -70,7 +86,9 @@ pub fn build(owner: &str, groups: &[(String, Vec<OpmlFeed>)]) -> String {
 // ---------------------------------------------------------------------------
 
 fn attr(node: roxmltree::Node, name: &str) -> Option<String> {
-    node.attribute(name).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    node.attribute(name)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// The nearest ancestor `<outline>` that is a folder (no `xmlUrl`) supplies the category name.
@@ -79,7 +97,11 @@ fn parent_category(node: roxmltree::Node) -> Option<String> {
     if !parent.has_tag_name("outline") {
         return None;
     }
-    if parent.attribute("xmlUrl").or_else(|| parent.attribute("xmlurl")).is_some() {
+    if parent
+        .attribute("xmlUrl")
+        .or_else(|| parent.attribute("xmlurl"))
+        .is_some()
+    {
         return None; // parent is itself a feed, not a folder
     }
     attr(parent, "text").or_else(|| attr(parent, "title"))

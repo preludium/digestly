@@ -2,7 +2,7 @@
 //!
 //! `GET /api/digest` / `GET /api/digest/{id}` are the **current user's** history (per-user
 //! scoping). `POST /api/digest/run` and the engine config (`GET/PUT /api/digest/config`) are
-//! **admin-only** — enforced server-side via `AdminUser` (§11), runs for all users.
+//! **admin-only** - enforced server-side via `AdminUser` (§11), runs for all users.
 
 use axum::extract::{Path, State};
 use axum::routing::{get, post};
@@ -39,8 +39,11 @@ struct DigestListItem {
     error: Option<String>,
 }
 
-/// `GET /api/digest` — the caller's digest history, newest first (§9.8).
-async fn list_digests(user: CurrentUser, State(state): State<AppState>) -> ApiResult<Json<Vec<DigestListItem>>> {
+/// `GET /api/digest` - the caller's digest history, newest first (§9.8).
+async fn list_digests(
+    user: CurrentUser,
+    State(state): State<AppState>,
+) -> ApiResult<Json<Vec<DigestListItem>>> {
     let rows = sqlx::query(
         "SELECT id, created_at, period_start, period_end, item_count, notified, error
          FROM digests WHERE user_id = ? ORDER BY created_at DESC, id DESC",
@@ -73,12 +76,16 @@ struct DigestDetail {
     item_count: i64,
     notified: bool,
     error: Option<String>,
-    /// The archived structured payload (categories, sources, notes) — see `digest::build_and_archive`.
+    /// The archived structured payload (categories, sources, notes) - see `digest::build_and_archive`.
     payload: Value,
 }
 
-/// `GET /api/digest/{id}` — one archived digest, scoped to the caller (§9.9). 404 if not theirs.
-async fn get_digest(user: CurrentUser, State(state): State<AppState>, Path(id): Path<i64>) -> ApiResult<Json<DigestDetail>> {
+/// `GET /api/digest/{id}` - one archived digest, scoped to the caller (§9.9). 404 if not theirs.
+async fn get_digest(
+    user: CurrentUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<DigestDetail>> {
     let row = sqlx::query(
         "SELECT id, created_at, period_start, period_end, item_count, notified, error, payload_json
          FROM digests WHERE id = ? AND user_id = ?",
@@ -152,13 +159,21 @@ struct PutConfig {
     ai_enabled: bool,
 }
 
-async fn put_config(_admin: AdminUser, State(state): State<AppState>, Json(body): Json<PutConfig>) -> ApiResult<Json<ConfigDto>> {
+async fn put_config(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Json(body): Json<PutConfig>,
+) -> ApiResult<Json<ConfigDto>> {
     // Validate the cron and timezone before persisting so the engine can't be wedged (§9.7).
     if digest::cron::Cron::parse(body.cron.trim()).is_none() {
-        return Err(AppError::BadRequest("invalid cron expression (expected 5 fields, e.g. '0 9 * * 1')".into()));
+        return Err(AppError::BadRequest(
+            "invalid cron expression (expected 5 fields, e.g. '0 9 * * 1')".into(),
+        ));
     }
     if body.timezone.parse::<chrono_tz::Tz>().is_err() {
-        return Err(AppError::BadRequest("unknown timezone (use an IANA name like 'Europe/Warsaw')".into()));
+        return Err(AppError::BadRequest(
+            "unknown timezone (use an IANA name like 'Europe/Warsaw')".into(),
+        ));
     }
 
     let cfg = DigestConfig {
@@ -187,7 +202,7 @@ struct RunBody {
     lookback_days: Option<i64>,
 }
 
-/// `POST /api/digest/run` — run the digest for all users now (§7, §10). Admin-only (§11). An
+/// `POST /api/digest/run` - run the digest for all users now (§7, §10). Admin-only (§11). An
 /// optional `lookback_days` in the body overrides the configured window for this run only.
 async fn run_digest(
     _admin: AdminUser,
@@ -195,8 +210,13 @@ async fn run_digest(
     body: Option<Json<RunBody>>,
 ) -> ApiResult<Json<digest::RunSummary>> {
     let lookback_override = body.and_then(|b| b.0.lookback_days);
-    let summary = digest::run_all(&state.pool, &state.http_client, &state.enc_key, lookback_override)
-        .await
-        .map_err(AppError::Internal)?;
+    let summary = digest::run_all(
+        &state.pool,
+        &state.http_client,
+        &state.enc_key,
+        lookback_override,
+    )
+    .await
+    .map_err(AppError::Internal)?;
     Ok(Json(summary))
 }

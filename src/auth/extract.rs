@@ -1,4 +1,4 @@
-//! Per-user scoping extractors — the shared helper every handler uses (prompt.md §10, §11).
+//! Per-user scoping extractors - the shared helper every handler uses (prompt.md §10, §11).
 //!
 //! `CurrentUser` resolves `user_id` FROM THE SESSION, never a client parameter. Handlers that
 //! touch per-user rows take `CurrentUser` and filter by `user.id`. `AdminUser` additionally

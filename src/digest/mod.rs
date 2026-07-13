@@ -5,7 +5,7 @@
 //! `digests` row and pushed to their own ntfy channel (§7a).
 //!
 //! **AI fallback** (§6, §11): a provider error / budget exceeded produces a digest with raw grouped
-//! titles + links and a note — it **never** fails the run.
+//! titles + links and a note - it **never** fails the run.
 
 pub mod cron;
 
@@ -22,6 +22,11 @@ use crate::notify;
 
 /// Cap on the number of items whose titles are fed to the per-category AI prompt.
 const MAX_ITEMS_PER_CATEGORY_PROMPT: usize = 40;
+/// A feed created without an immediate poll (OAuth sync - no backlog dump) is anchored to first
+/// fetch this long before the digest's next scheduled run, so it's fresh by the time the digest
+/// reads it instead of polling on an arbitrary clock offset from creation time
+/// (`routes::feeds::default_next_fetch_at`).
+pub const PREFETCH_BUFFER_SECS: i64 = 3600;
 /// A user with more than this many failed sources in the window gets an explicit alert (§7, §11).
 const FAILED_SOURCES_ALERT_THRESHOLD: i64 = 2;
 
@@ -47,7 +52,12 @@ impl CategoryFilter {
         if v.trim().is_empty() || v.trim() == "all" {
             CategoryFilter::All
         } else {
-            CategoryFilter::Names(v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            CategoryFilter::Names(
+                v.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            )
         }
     }
     fn includes(&self, name: &str) -> bool {
@@ -73,8 +83,8 @@ impl Default for DigestConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            cron: "0 9 * * *".to_string(), // daily, 09:00 (§7)
-            lookback_days: 1,              // 24h — lookback is stored in whole days
+            cron: "0 5 * * *".to_string(), // daily, 05:00 UTC (§7)
+            lookback_days: 1,              // 24h - lookback is stored in whole days
             timezone: "UTC".to_string(),
             categories: CategoryFilter::All,
             ai_enabled: true,
@@ -87,22 +97,54 @@ impl DigestConfig {
         let d = DigestConfig::default();
         DigestConfig {
             enabled: get_bool(pool, "digest.enabled", d.enabled).await,
-            cron: get_str(pool, "digest.cron").await.filter(|c| cron::Cron::parse(c).is_some()).unwrap_or(d.cron),
-            lookback_days: get_int(pool, "digest.lookback_days", d.lookback_days).await.clamp(1, 90),
+            cron: get_str(pool, "digest.cron")
+                .await
+                .filter(|c| cron::Cron::parse(c).is_some())
+                .unwrap_or(d.cron),
+            lookback_days: get_int(pool, "digest.lookback_days", d.lookback_days)
+                .await
+                .clamp(1, 90),
             timezone: get_str(pool, "digest.timezone").await.unwrap_or(d.timezone),
-            categories: get_str(pool, "digest.categories").await.map(|v| CategoryFilter::from_setting(&v)).unwrap_or(d.categories),
+            categories: get_str(pool, "digest.categories")
+                .await
+                .map(|v| CategoryFilter::from_setting(&v))
+                .unwrap_or(d.categories),
             ai_enabled: get_bool(pool, "digest.ai_enabled", d.ai_enabled).await,
         }
     }
 
     pub async fn save(&self, pool: &SqlitePool) -> Result<()> {
-        set_setting(pool, "digest.enabled", if self.enabled { "true" } else { "false" }).await?;
+        set_setting(
+            pool,
+            "digest.enabled",
+            if self.enabled { "true" } else { "false" },
+        )
+        .await?;
         set_setting(pool, "digest.cron", &self.cron).await?;
-        set_setting(pool, "digest.lookback_days", &self.lookback_days.clamp(1, 90).to_string()).await?;
+        set_setting(
+            pool,
+            "digest.lookback_days",
+            &self.lookback_days.clamp(1, 90).to_string(),
+        )
+        .await?;
         set_setting(pool, "digest.timezone", &self.timezone).await?;
         set_setting(pool, "digest.categories", &self.categories.to_setting()).await?;
-        set_setting(pool, "digest.ai_enabled", if self.ai_enabled { "true" } else { "false" }).await?;
+        set_setting(
+            pool,
+            "digest.ai_enabled",
+            if self.ai_enabled { "true" } else { "false" },
+        )
+        .await?;
         Ok(())
+    }
+
+    /// The next UTC instant this digest is scheduled to fire, strictly after `after`, honoring
+    /// `self.timezone`. `None` if `self.cron` is unparseable or can never match.
+    pub fn next_run_at(&self, after: chrono::DateTime<Utc>) -> Option<chrono::DateTime<Utc>> {
+        let cron = cron::Cron::parse(&self.cron)?;
+        let tz: chrono_tz::Tz = self.timezone.parse().unwrap_or(chrono_tz::UTC);
+        let next_local = cron.next_after(&after.with_timezone(&tz))?;
+        Some(next_local.with_timezone(&Utc))
     }
 
     /// A human-readable schedule preview for the UI (§9.7). Notes when the engine is off.
@@ -113,7 +155,7 @@ impl DigestConfig {
         if self.enabled {
             format!("{base} ({})", self.timezone)
         } else {
-            format!("Disabled — {base} ({})", self.timezone)
+            format!("Disabled - {base} ({})", self.timezone)
         }
     }
 }
@@ -131,12 +173,19 @@ pub struct RunSummary {
 }
 
 /// Run the digest for **all** users (manual admin trigger or scheduled). Never fails on a single
-/// user's error — logs and continues. `lookback_override`, when `Some`, replaces the configured
-/// `lookback_days` for this run only (e.g. an admin's one-off "last month" manual run) — it is
+/// user's error - logs and continues. `lookback_override`, when `Some`, replaces the configured
+/// `lookback_days` for this run only (e.g. an admin's one-off "last month" manual run) - it is
 /// never persisted. The scheduled run always passes `None`.
-pub async fn run_all(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32], lookback_override: Option<i64>) -> Result<RunSummary> {
+pub async fn run_all(
+    pool: &SqlitePool,
+    http: &Client,
+    enc_key: &[u8; 32],
+    lookback_override: Option<i64>,
+) -> Result<RunSummary> {
     let cfg = DigestConfig::load(pool).await;
-    let lookback_days = lookback_override.map(|d| d.clamp(1, 90)).unwrap_or(cfg.lookback_days);
+    let lookback_days = lookback_override
+        .map(|d| d.clamp(1, 90))
+        .unwrap_or(cfg.lookback_days);
     let now = Utc::now();
     let period_start = now - Duration::days(lookback_days);
     let start_s = fmt_dt(period_start);
@@ -157,9 +206,16 @@ pub async fn run_all(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32], lookb
         .map(|r| r.get::<i64, _>("id"))
         .collect();
 
-    let mut summary = RunSummary { users: user_ids.len(), ..Default::default() };
+    let mut summary = RunSummary {
+        users: user_ids.len(),
+        ..Default::default()
+    };
     for user_id in user_ids {
-        match build_and_archive(pool, http, enc_key, user_id, &cfg, &provider, &params, &start_s, &end_s).await {
+        match build_and_archive(
+            pool, http, enc_key, user_id, &cfg, &provider, &params, &start_s, &end_s,
+        )
+        .await
+        {
             Ok(pushed) => {
                 summary.digests += 1;
                 if pushed {
@@ -169,7 +225,12 @@ pub async fn run_all(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32], lookb
             Err(e) => warn!(user_id, error = %e, "digest build failed for user (continuing)"),
         }
     }
-    info!(users = summary.users, digests = summary.digests, pushed = summary.pushed, "digest run complete");
+    info!(
+        users = summary.users,
+        digests = summary.digests,
+        pushed = summary.pushed,
+        "digest run complete"
+    );
     Ok(summary)
 }
 
@@ -205,7 +266,7 @@ async fn build_and_archive(
          JOIN feeds fe ON fe.id = i.feed_id
          JOIN categories c ON c.id = s.category_id
          WHERE s.disabled = 0
-           AND (i.score IS NULL OR i.score >= s.min_score)
+           AND (s.min_score <= 0 OR (i.score IS NOT NULL AND i.score >= s.min_score))
            AND i.published_at >= ? AND i.published_at <= ?
          ORDER BY c.position, c.name, i.published_at DESC",
     )
@@ -228,7 +289,9 @@ async fn build_and_archive(
             sources.push(feed_title.clone());
         }
         let item = DigestItem {
-            title: r.get::<Option<String>, _>("title").unwrap_or_else(|| "(untitled)".into()),
+            title: r
+                .get::<Option<String>, _>("title")
+                .unwrap_or_else(|| "(untitled)".into()),
             url: r.get("url"),
             feed_title,
             published_at: r.get("published_at"),
@@ -261,7 +324,7 @@ async fn build_and_archive(
                     }
                     Err(reason) => {
                         used_raw_fallback = true;
-                        warn!(user_id, category = %name, reason = %reason, "digest AI failed — raw fallback for this category");
+                        warn!(user_id, category = %name, reason = %reason, "digest AI failed - raw fallback for this category");
                     }
                 }
             } else {
@@ -286,17 +349,16 @@ async fn build_and_archive(
     // A fallback note when AI was requested but at least one section couldn't use it.
     let fallback_note: Option<String> = if cfg.ai_enabled && used_raw_fallback {
         Some(if provider.is_none() {
-            "AI summaries were unavailable (no active provider) — showing raw titles.".to_string()
+            "AI summaries were unavailable (no active provider) - showing raw titles.".to_string()
         } else {
-            "AI summaries were unavailable for some sections (provider error or budget) — showing raw titles.".to_string()
+            "AI summaries were unavailable for some sections (provider error or budget) - showing raw titles.".to_string()
         })
     } else {
         None
     };
 
-    let failure_warning: Option<String> = (failed_sources > FAILED_SOURCES_ALERT_THRESHOLD).then(|| {
-        format!("{failed_sources} of your sources failed to fetch recently.")
-    });
+    let failure_warning: Option<String> = (failed_sources > FAILED_SOURCES_ALERT_THRESHOLD)
+        .then(|| format!("{failed_sources} of your sources failed to fetch recently."));
 
     let payload = json!({
         "generated_at": end_s,
@@ -339,10 +401,17 @@ async fn build_and_archive(
             match notify::send(http, &ch, &push).await {
                 Ok(()) => {
                     pushed = true;
-                    let _ = sqlx::query("UPDATE digests SET notified = 1 WHERE id = ?").bind(digest_id).execute(pool).await;
+                    let _ = sqlx::query("UPDATE digests SET notified = 1 WHERE id = ?")
+                        .bind(digest_id)
+                        .execute(pool)
+                        .await;
                 }
                 Err(e) => {
-                    let _ = sqlx::query("UPDATE digests SET error = ? WHERE id = ?").bind(&e).bind(digest_id).execute(pool).await;
+                    let _ = sqlx::query("UPDATE digests SET error = ? WHERE id = ?")
+                        .bind(&e)
+                        .bind(digest_id)
+                        .execute(pool)
+                        .await;
                     warn!(user_id, error = %e, "digest push failed");
                 }
             }
@@ -352,7 +421,7 @@ async fn build_and_archive(
 }
 
 /// One AI prompt per category (§6 digest prompt). Returns the summary text, or an error reason that
-/// triggers the raw fallback (never propagates — the caller degrades gracefully).
+/// triggers the raw fallback (never propagates - the caller degrades gracefully).
 async fn summarize_category(
     pool: &SqlitePool,
     http: &Client,
@@ -388,7 +457,12 @@ async fn summarize_category(
         provider.key.clone(),
         params.timeout_secs,
     );
-    let req = LlmRequest { system, user, max_tokens: params.max_tokens, temperature: params.temperature };
+    let req = LlmRequest {
+        system,
+        user,
+        max_tokens: params.max_tokens,
+        temperature: params.temperature,
+    };
     let resp = llm.complete(&req).await.map_err(|e| e.user_message())?;
     budget::record(pool, resp.tokens_used).await;
     Ok(resp.text)
@@ -396,7 +470,10 @@ async fn summarize_category(
 
 /// "42 new articles across AI (14), Software Engineering (12)…" (§7a).
 fn digest_push_body(total: i64, counts: &[(String, i64)], warning: Option<&str>) -> String {
-    let parts: Vec<String> = counts.iter().map(|(name, n)| format!("{name} ({n})")).collect();
+    let parts: Vec<String> = counts
+        .iter()
+        .map(|(name, n)| format!("{name} ({n})"))
+        .collect();
     let mut body = if parts.is_empty() {
         format!("{total} new articles")
     } else {
@@ -440,7 +517,7 @@ async fn user_wants_digest_push(pool: &SqlitePool, user_id: i64) -> bool {
 const SCHED_TICK_SECS: u64 = 45;
 
 /// Spawn the digest scheduler: on each tick, if enabled and the cron matches the current minute (in
-/// the configured timezone, DST-correct), run for all users — guarded to fire once per minute.
+/// the configured timezone, DST-correct), run for all users - guarded to fire once per minute.
 pub fn spawn(pool: SqlitePool, http: Client, enc_key: [u8; 32]) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         info!("digest scheduler started");
@@ -458,7 +535,9 @@ async fn tick(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32]) -> Result<()
     if !cfg.enabled {
         return Ok(());
     }
-    let Some(cron) = cron::Cron::parse(&cfg.cron) else { return Ok(()) };
+    let Some(cron) = cron::Cron::parse(&cfg.cron) else {
+        return Ok(());
+    };
     let tz: chrono_tz::Tz = cfg.timezone.parse().unwrap_or(chrono_tz::UTC);
     let now_local = Utc::now().with_timezone(&tz);
     if !cron.matches(&now_local) {
@@ -494,11 +573,17 @@ async fn get_str(pool: &SqlitePool, key: &str) -> Option<String> {
 }
 
 async fn get_int(pool: &SqlitePool, key: &str, default: i64) -> i64 {
-    get_str(pool, key).await.and_then(|v| v.parse().ok()).unwrap_or(default)
+    get_str(pool, key)
+        .await
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 async fn get_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
-    get_str(pool, key).await.map(|v| v == "true" || v == "1").unwrap_or(default)
+    get_str(pool, key)
+        .await
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(default)
 }
 
 async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {
@@ -529,16 +614,29 @@ mod tests {
     }
 
     #[test]
-    fn default_config_is_daily_at_9am_with_24h_lookback() {
+    fn default_config_is_daily_at_5am_utc_with_24h_lookback() {
         let cfg = DigestConfig::default();
-        assert_eq!(cfg.cron, "0 9 * * *", "default schedule should be daily, not weekly");
-        assert_eq!(cfg.lookback_days, 1, "default look-back should be 24h (1 day)");
-        assert!(cron::Cron::parse(&cfg.cron).is_some(), "default cron must still be valid");
+        assert_eq!(
+            cfg.cron, "0 5 * * *",
+            "default schedule should be daily, not weekly"
+        );
+        assert_eq!(
+            cfg.lookback_days, 1,
+            "default look-back should be 24h (1 day)"
+        );
+        assert!(
+            cron::Cron::parse(&cfg.cron).is_some(),
+            "default cron must still be valid"
+        );
     }
 
     #[test]
     fn digest_push_body_lists_counts_and_warning() {
-        let body = digest_push_body(26, &[("AI".into(), 14), ("Finance".into(), 12)], Some("3 of your sources failed to fetch recently."));
+        let body = digest_push_body(
+            26,
+            &[("AI".into(), 14), ("Finance".into(), 12)],
+            Some("3 of your sources failed to fetch recently."),
+        );
         assert!(body.contains("26 new articles across AI (14), Finance (12)"));
         assert!(body.contains("⚠ 3 of your sources failed"));
     }

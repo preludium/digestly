@@ -21,17 +21,17 @@ pub struct Config {
     pub secret_key: String,
     /// Bootstraps the built-in `admin` account. REQUIRED.
     pub admin_password: String,
-    /// WebAuthn Relying Party ID — the registrable domain passkeys are bound to (§1a, S1).
+    /// WebAuthn Relying Party ID - the registrable domain passkeys are bound to (§1a, S1).
     /// Defaults to `localhost` (browsers allow WebAuthn over http on localhost for dev). In
     /// production set it to the stable Tailscale hostname; **changing it invalidates every
     /// existing passkey** (they are cryptographically bound to the RP ID).
     pub rp_id: String,
-    /// WebAuthn Relying Party origin — the full scheme+host+port the app is served from, and the
+    /// WebAuthn Relying Party origin - the full scheme+host+port the app is served from, and the
     /// origin browsers will report during a ceremony. Must be an HTTPS origin in production (the
     /// Tailscale origin); defaults to `http://localhost:8080` for local dev.
     pub rp_origin: String,
     /// Optional, comma-separated extra WebAuthn origins to also accept alongside `rp_origin`
-    /// (e.g. `http://localhost:5173` for the Vite dev server). Leave unset in production — only
+    /// (e.g. `http://localhost:5173` for the Vite dev server). Leave unset in production - only
     /// `rp_origin` should be trusted there.
     pub rp_extra_origins: Vec<String>,
     /// OAuth import helpers (§3, §8, S4). Optional, instance-level client credentials. A provider's
@@ -97,10 +97,13 @@ impl Config {
 fn oauth_client(id_var: &str, secret_var: &str) -> Option<OAuthClient> {
     let id = env::var(id_var).ok().filter(|v| !v.trim().is_empty())?;
     let secret = env::var(secret_var).ok().filter(|v| !v.trim().is_empty())?;
-    Some(OAuthClient { client_id: id, client_secret: secret })
+    Some(OAuthClient {
+        client_id: id,
+        client_secret: secret,
+    })
 }
 
-/// `RP_EXTRA_ORIGINS` — optional, comma-separated extra WebAuthn origins to accept alongside
+/// `RP_EXTRA_ORIGINS` - optional, comma-separated extra WebAuthn origins to accept alongside
 /// `RP_ORIGIN` (e.g. `http://localhost:5173` for the Vite dev server). Production should leave
 /// this unset; only `RP_ORIGIN` should be trusted there.
 fn parse_extra_origins() -> Vec<String> {
@@ -133,7 +136,13 @@ mod rp_extra_origins_tests {
     #[test]
     fn parses_comma_separated_extra_origins_trimming_blanks() {
         let parsed = parse_extra_origins_str(" http://localhost:5173 , http://localhost:4173,, ");
-        assert_eq!(parsed, vec!["http://localhost:5173".to_string(), "http://localhost:4173".to_string()]);
+        assert_eq!(
+            parsed,
+            vec![
+                "http://localhost:5173".to_string(),
+                "http://localhost:4173".to_string()
+            ]
+        );
     }
 
     #[test]

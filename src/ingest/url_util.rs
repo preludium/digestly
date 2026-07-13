@@ -62,7 +62,7 @@ pub fn resolve(base: &str, href: &str) -> Option<String> {
     base.join(href).ok().map(|u| u.to_string())
 }
 
-/// True if `host` is a loopback/private/link-local address or a local hostname — the ranges the
+/// True if `host` is a loopback/private/link-local address or a local hostname - the ranges the
 /// SSRF guard rejects unless private access is explicitly allowed (prompt.md §11 "Security").
 pub fn is_private_host(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();

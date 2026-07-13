@@ -18,7 +18,7 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/me", get(get_me).patch(change_password).delete(delete_me))
 }
 
-/// `GET /api/me` — the signed-in user (username, role).
+/// `GET /api/me` - the signed-in user (username, role).
 async fn get_me(user: CurrentUser) -> Json<UserDto> {
     Json(UserDto {
         id: user.id,
@@ -33,7 +33,7 @@ struct ChangePassword {
     new_password: String,
 }
 
-/// `PATCH /api/me` — change password; requires the current password.
+/// `PATCH /api/me` - change password; requires the current password.
 async fn change_password(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -68,7 +68,7 @@ async fn change_password(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `DELETE /api/me` — delete own account (cascades all per-user data). Blocked for built-in admin.
+/// `DELETE /api/me` - delete own account (cascades all per-user data). Blocked for built-in admin.
 async fn delete_me(
     State(state): State<AppState>,
     user: CurrentUser,

@@ -1,4 +1,4 @@
-//! The two — and only two — LLM client implementations (prompt.md §6): `OpenAICompatibleClient`
+//! The two - and only two - LLM client implementations (prompt.md §6): `OpenAICompatibleClient`
 //! (`POST {base_url}/chat/completions`) and `AnthropicClient` (`POST {base_url}/messages`),
 //! selected by `api_style`. Retries with backoff on 429/5xx. Keys go in headers only, never logged.
 
@@ -22,7 +22,13 @@ pub fn make_client(
     api_key: Option<String>,
     timeout_secs: u64,
 ) -> Box<dyn super::LlmClient> {
-    let cfg = ClientCfg { http, base_url: base_url.trim_end_matches('/').to_string(), model, api_key, timeout_secs };
+    let cfg = ClientCfg {
+        http,
+        base_url: base_url.trim_end_matches('/').to_string(),
+        model,
+        api_key,
+        timeout_secs,
+    };
     match style {
         ApiStyle::OpenAi => Box::new(OpenAICompatibleClient(cfg)),
         ApiStyle::Anthropic => Box::new(AnthropicClient(cfg)),
@@ -56,11 +62,9 @@ impl super::LlmClient for OpenAICompatibleClient {
             "stream": false,
         });
 
-        let resp = send_with_retry(c, &url, &body, |rb| {
-            match &c.api_key {
-                Some(k) => rb.bearer_auth(k),
-                None => rb,
-            }
+        let resp = send_with_retry(c, &url, &body, |rb| match &c.api_key {
+            Some(k) => rb.bearer_auth(k),
+            None => rb,
         })
         .await?;
 
@@ -121,6 +125,74 @@ impl super::LlmClient for AnthropicClient {
     }
 }
 
+/// Summarize a YouTube video by URL via Gemini's **native** `generateContent` endpoint
+/// (prompt.md §6a video path). Not a third [`ApiStyle`]: articles still go through the two
+/// standard clients; this exists only because Gemini's OpenAI-compatible endpoint cannot accept
+/// a `file_data.file_uri` video part, and Gemini is the only supported provider that understands
+/// video at all. Low media resolution: the audio track (the content) costs the same either way,
+/// and low cuts the frame tokens 4x.
+pub async fn gemini_video_complete(
+    http: Client,
+    provider: &crate::ai::provider::ResolvedProvider,
+    video_url: &str,
+    prompt: &str,
+    max_tokens: u32,
+    temperature: f32,
+    timeout_secs: u64,
+) -> Result<LlmResponse, LlmError> {
+    let c = ClientCfg {
+        http,
+        base_url: provider.base_url.trim_end_matches('/').to_string(),
+        model: provider.model.clone(),
+        api_key: provider.key.clone(),
+        timeout_secs,
+    };
+    let url = gemini_video_endpoint(&c.base_url, &c.model);
+    // Video part first, instructions second - Gemini's documented best practice for media prompts.
+    let body = json!({
+        "contents": [{ "parts": [
+            { "file_data": { "file_uri": video_url } },
+            { "text": prompt },
+        ]}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": temperature,
+            "mediaResolution": "MEDIA_RESOLUTION_LOW",
+        },
+    });
+    let resp = send_with_retry(&c, &url, &body, |rb| match &c.api_key {
+        Some(k) => rb.header("x-goog-api-key", k),
+        None => rb,
+    })
+    .await?;
+    parse_gemini_video_response(&resp, prompt)
+}
+
+/// The native `generateContent` URL for a stored Gemini provider. Providers created from the
+/// preset store the OpenAI-compat base (`…/v1beta/openai`); the native API lives one level up.
+fn gemini_video_endpoint(base_url: &str, model: &str) -> String {
+    let root = base_url
+        .trim_end_matches('/')
+        .trim_end_matches("/openai")
+        .trim_end_matches('/');
+    format!("{root}/models/{model}:generateContent")
+}
+
+/// Extract text + token usage from a native `generateContent` response body.
+fn parse_gemini_video_response(resp: &Value, prompt: &str) -> Result<LlmResponse, LlmError> {
+    let text = resp
+        .pointer("/candidates/0/content/parts/0/text")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|s| !s.trim().is_empty())
+        .ok_or(LlmError::Empty)?;
+    let tokens_used = resp
+        .pointer("/usageMetadata/totalTokenCount")
+        .and_then(Value::as_i64)
+        .unwrap_or_else(|| estimate_tokens(prompt, "", &text));
+    Ok(LlmResponse { text, tokens_used })
+}
+
 /// POST JSON with per-call auth headers, retrying on 429/5xx with linear backoff. Returns the
 /// parsed JSON body on success. The request body is never logged (may reference cached content,
 /// and headers carry the key).
@@ -147,21 +219,27 @@ async fn send_with_retry(
             Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
-                    return resp
-                        .json::<Value>()
-                        .await
-                        .map_err(|e| LlmError::Api { status: status.as_u16(), message: format!("invalid JSON: {e}") });
+                    return resp.json::<Value>().await.map_err(|e| LlmError::Api {
+                        status: status.as_u16(),
+                        message: format!("invalid JSON: {e}"),
+                    });
                 }
-                let retriable =
-                    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
+                let retriable = status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
                 let message = error_message(resp).await;
-                last = Some(LlmError::Api { status: status.as_u16(), message });
+                last = Some(LlmError::Api {
+                    status: status.as_u16(),
+                    message,
+                });
                 if !retriable {
                     break;
                 }
             }
             Err(e) => {
-                let msg = if e.is_timeout() { "request timed out".to_string() } else { format!("{e}") };
+                let msg = if e.is_timeout() {
+                    "request timed out".to_string()
+                } else {
+                    format!("{e}")
+                };
                 last = Some(LlmError::Network(msg));
             }
         }
@@ -180,7 +258,11 @@ async fn error_message(resp: reqwest::Response) -> String {
             return truncate(m);
         }
     }
-    truncate(if raw.is_empty() { "no response body" } else { &raw })
+    truncate(if raw.is_empty() {
+        "no response body"
+    } else {
+        &raw
+    })
 }
 
 fn truncate(s: &str) -> String {
@@ -196,4 +278,71 @@ fn truncate(s: &str) -> String {
 /// advances (prompt.md §6 "Count tokens").
 fn estimate_tokens(system: &str, user: &str, output: &str) -> i64 {
     ((system.len() + user.len() + output.len()) as i64 / 4).max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_native_gemini_endpoint_from_the_openai_compat_base_url() {
+        assert_eq!(
+            gemini_video_endpoint(
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+        // Trailing slash and no-compat-suffix variants both resolve to the same shape.
+        assert_eq!(
+            gemini_video_endpoint(
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+        assert_eq!(
+            gemini_video_endpoint(
+                "https://generativelanguage.googleapis.com/v1beta",
+                "gemini-2.0-flash"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        );
+    }
+
+    #[test]
+    fn parses_a_gemini_video_response() {
+        let body = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "A summary." }] } }],
+            "usageMetadata": { "totalTokenCount": 151234 }
+        });
+        let resp = parse_gemini_video_response(&body, "prompt").unwrap();
+        assert_eq!(resp.text, "A summary.");
+        assert_eq!(resp.tokens_used, 151234);
+    }
+
+    #[test]
+    fn empty_or_missing_candidate_text_is_an_empty_error() {
+        let missing = serde_json::json!({ "candidates": [] });
+        assert!(matches!(
+            parse_gemini_video_response(&missing, "p"),
+            Err(LlmError::Empty)
+        ));
+        let blank = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "   " }] } }]
+        });
+        assert!(matches!(
+            parse_gemini_video_response(&blank, "p"),
+            Err(LlmError::Empty)
+        ));
+    }
+
+    #[test]
+    fn missing_usage_falls_back_to_an_estimate() {
+        let body = serde_json::json!({
+            "candidates": [{ "content": { "parts": [{ "text": "Summary text here." }] } }]
+        });
+        let resp = parse_gemini_video_response(&body, "prompt").unwrap();
+        assert!(resp.tokens_used >= 1);
+    }
 }

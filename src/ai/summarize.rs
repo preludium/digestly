@@ -21,7 +21,7 @@ pub struct SummaryResult {
     pub cached: bool,
 }
 
-/// Why a summarize call couldn't produce a summary — each maps to a clear, key-free API error.
+/// Why a summarize call couldn't produce a summary - each maps to a clear, key-free API error.
 pub enum SummarizeError {
     /// No active provider configured (admin must add one).
     NotConfigured,
@@ -72,24 +72,97 @@ pub async fn summarize_item(
         .ok_or(SummarizeError::NotConfigured)?;
     let model = active.model.clone();
 
-    // Cache hit (shared, keyed by item+model) — unless forced.
-    if !force {
-        if let Some(text) = cached(pool, item_id, &model).await? {
-            return Ok(SummaryResult { summary: text, model, cached: true });
-        }
-    }
-
     let mut item = load_item(pool, item_id).await?;
     let is_video = item.kind == "youtube";
 
-    // Video items: lazily fetch the transcript if we haven't tried yet (prompt.md §6a).
-    if is_video && item.transcript_status == "none" {
-        let params = AiParams::load(pool).await;
-        fetch_and_store_transcript(pool, http, item_id, &item, params.timeout_secs).await;
-        item = load_item(pool, item_id).await?; // reload updated transcript fields
+    // Dedicated video provider (§6a): Gemini summarizes the video by URL - no transcript needed.
+    let video_provider = if is_video {
+        provider::load_video_provider(pool, enc_key).await?
+    } else {
+        None
+    };
+
+    // Cache hit (shared, keyed by item+model) - unless forced. For video items with a video
+    // provider, that provider's model is the canonical cache slot; the active model's entry is
+    // still honored second (it holds summaries made before the slot was set, or by fallback).
+    if !force {
+        if let Some(vp) = &video_provider {
+            if let Some(text) = cached(pool, item_id, &vp.model).await? {
+                return Ok(SummaryResult {
+                    summary: text,
+                    model: vp.model.clone(),
+                    cached: true,
+                });
+            }
+        }
+        if let Some(text) = cached(pool, item_id, &model).await? {
+            return Ok(SummaryResult {
+                summary: text,
+                model,
+                cached: true,
+            });
+        }
     }
 
     let params = AiParams::load(pool).await;
+
+    if let Some(vp) = &video_provider {
+        if let Some(url) = item.url.clone() {
+            // Budget guard before spending; video usage is large (~100 tokens/sec of video).
+            budget::check(pool, &params)
+                .await
+                .map_err(SummarizeError::Budget)?;
+            let prompt = build_video_url_prompt(&item);
+            match client::gemini_video_complete(
+                http.clone(),
+                vp,
+                &url,
+                &prompt,
+                video_max_tokens(params.max_tokens),
+                params.temperature,
+                params.timeout_secs,
+            )
+            .await
+            {
+                Ok(resp) => {
+                    budget::record(pool, resp.tokens_used).await;
+                    store_summary(
+                        pool,
+                        item_id,
+                        &vp.model,
+                        vp.api_style.as_str(),
+                        &resp.text,
+                        true,
+                        force,
+                    )
+                    .await?;
+                    return Ok(SummaryResult {
+                        summary: resp.text,
+                        model: vp.model.clone(),
+                        cached: false,
+                    });
+                }
+                // Private video, free-tier daily cap, rate limit, outage: never a dead end -
+                // the transcript flow below is exactly what ran before this feature existed.
+                Err(e) => tracing::warn!(item_id, error = %e,
+                    "video provider failed - falling back to the transcript flow"),
+            }
+        }
+    }
+
+    // Video items: lazily fetch the transcript if we haven't tried yet (prompt.md §6a).
+    if is_video && item.transcript_status == "none" {
+        transcript::fetch_and_store(
+            pool,
+            http,
+            item_id,
+            item.url.as_deref(),
+            item.guid.as_deref(),
+            params.timeout_secs,
+        )
+        .await;
+        item = load_item(pool, item_id).await?; // reload updated transcript fields
+    }
     let (system, source, truncated) = build_prompt(&item, is_video);
     let source = match source {
         Some(s) if !s.trim().is_empty() => s,
@@ -97,7 +170,9 @@ pub async fn summarize_item(
     };
 
     // Budget guard (before spending tokens).
-    budget::check(pool, &params).await.map_err(SummarizeError::Budget)?;
+    budget::check(pool, &params)
+        .await
+        .map_err(SummarizeError::Budget)?;
 
     let mut user = format!(
         "Title: {}\nSource: {}\n\n{}:\n{}",
@@ -107,7 +182,9 @@ pub async fn summarize_item(
         source
     );
     if truncated {
-        user.push_str("\n\n[Note: the source was truncated for length; summarize what is present.]");
+        user.push_str(
+            "\n\n[Note: the source was truncated for length; summarize what is present.]",
+        );
     }
 
     let llm = client::make_client(
@@ -118,7 +195,12 @@ pub async fn summarize_item(
         active.key,
         params.timeout_secs,
     );
-    let req = LlmRequest { system, user, max_tokens: params.max_tokens, temperature: params.temperature };
+    let req = LlmRequest {
+        system,
+        user,
+        max_tokens: params.max_tokens,
+        temperature: params.temperature,
+    };
 
     let resp = llm
         .complete(&req)
@@ -126,9 +208,68 @@ pub async fn summarize_item(
         .map_err(|e| SummarizeError::Provider(e.user_message()))?;
 
     budget::record(pool, resp.tokens_used).await;
-    store_summary(pool, item_id, &model, active.api_style.as_str(), &resp.text, is_video, force).await?;
+    store_summary(
+        pool,
+        item_id,
+        &model,
+        active.api_style.as_str(),
+        &resp.text,
+        is_video,
+        force,
+    )
+    .await?;
 
-    Ok(SummaryResult { summary: resp.text, model, cached: false })
+    Ok(SummaryResult {
+        summary: resp.text,
+        model,
+        cached: false,
+    })
+}
+
+/// Prompt for the video-URL path (§6a): Gemini watches the attached video itself and produces a
+/// comprehensive four-section brief (detailed breakdown, takeaways, answered questions, and a
+/// watch-it pitch) so the reader can decide whether the video is worth their time. One text part
+/// - the native call has no system turn.
+fn build_video_url_prompt(item: &ItemRow) -> String {
+    format!(
+        "Act as an expert content analyst and researcher. The reader is deciding whether to \
+         watch the attached YouTube video and needs a detailed breakdown to see if it's worth \
+         their time. Watch the video and produce a comprehensive brief in plain text with these \
+         four sections:\n\
+         \n\
+         1. Detailed chronological breakdown - a structured, step-by-step summary of what is \
+         actually said, broken down by major topics or chapters, detailing the main arguments, \
+         concepts, or stories the speaker shares in each section. Do not just list topics; \
+         explain what the speaker says about them.\n\
+         \n\
+         2. Key takeaways & core insights - the top 3–5 most valuable, actionable, or profound \
+         lessons a viewer should walk away with, each as a '- ' bullet.\n\
+         \n\
+         3. Questions this video answers - 5–7 specific, practical questions a viewer will get \
+         answered by watching (e.g. \"How do I fix X error?\" or \"Why does Y happen?\"), each \
+         as a '- ' bullet.\n\
+         \n\
+         4. The pitch: why watch it - a compelling argument for watching the video instead of \
+         just reading this brief. Highlight unique elements: the speaker's energy or passion, \
+         visual demonstrations, data charts, or code walkthroughs that are crucial to see, and \
+         who the ideal audience is.\n\
+         \n\
+         Do not invent facts not in the video. Output the brief with no preamble, greeting, or \
+         framing sentence (never anything like \"Here is a summary of…\") - the very first line \
+         must be the section 1 heading.\n\nTitle: {}\nSource: {}",
+        item.title.as_deref().unwrap_or("(untitled)"),
+        item.feed_title
+    )
+}
+
+/// Output-token floor for the video-URL path. Gemini's current flash models think by default and
+/// thinking tokens count against `maxOutputTokens`, so the global text-summary default (1024)
+/// leaves almost nothing for the visible brief - it came back truncated mid-sentence. This is
+/// enough for the reasoning plus the four-section brief; an admin setting above it is respected.
+const VIDEO_MIN_MAX_TOKENS: u32 = 4096;
+
+fn video_max_tokens(configured: u32) -> u32 {
+    configured.max(VIDEO_MIN_MAX_TOKENS)
 }
 
 /// Build (system prompt, source text, was-truncated). Reading vs video/description-based (§6a).
@@ -170,7 +311,11 @@ fn build_prompt(item: &ItemRow, is_video: bool) -> (String, Option<String>, bool
 
 /// Prefer stored plain text; fall back to stripping sanitized HTML (prompt.md §5).
 fn text_of(item: &ItemRow) -> Option<String> {
-    if let Some(t) = item.content_text.as_deref().filter(|t| !t.trim().is_empty()) {
+    if let Some(t) = item
+        .content_text
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+    {
         return Some(t.to_string());
     }
     item.content_html
@@ -186,13 +331,19 @@ fn cap_opt(s: Option<String>, cap: usize) -> (Option<String>, bool) {
     }
 }
 
-async fn cached(pool: &SqlitePool, item_id: i64, model: &str) -> Result<Option<String>, sqlx::Error> {
-    Ok(sqlx::query("SELECT summary_text FROM item_summaries WHERE item_id = ? AND model = ?")
-        .bind(item_id)
-        .bind(model)
-        .fetch_optional(pool)
-        .await?
-        .map(|r| r.get("summary_text")))
+async fn cached(
+    pool: &SqlitePool,
+    item_id: i64,
+    model: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(
+        sqlx::query("SELECT summary_text FROM item_summaries WHERE item_id = ? AND model = ?")
+            .bind(item_id)
+            .bind(model)
+            .fetch_optional(pool)
+            .await?
+            .map(|r| r.get("summary_text")),
+    )
 }
 
 async fn load_item(pool: &SqlitePool, item_id: i64) -> Result<ItemRow, SummarizeError> {
@@ -217,38 +368,6 @@ async fn load_item(pool: &SqlitePool, item_id: i64) -> Result<ItemRow, Summarize
         kind: r.get("kind"),
         feed_title: r.get("feed_title"),
     })
-}
-
-/// Fetch a video transcript and persist it (best-effort; sets status fetched/unavailable).
-async fn fetch_and_store_transcript(
-    pool: &SqlitePool,
-    http: &Client,
-    item_id: i64,
-    item: &ItemRow,
-    timeout_secs: u64,
-) {
-    let Some(vid) = transcript::video_id(item.url.as_deref(), item.guid.as_deref()) else {
-        let _ = set_transcript(pool, item_id, None, "unavailable").await;
-        return;
-    };
-    match transcript::fetch(http, &vid, timeout_secs).await {
-        transcript::Transcript::Text(text) => {
-            let _ = set_transcript(pool, item_id, Some(&text), "fetched").await;
-        }
-        transcript::Transcript::Unavailable => {
-            let _ = set_transcript(pool, item_id, None, "unavailable").await;
-        }
-    }
-}
-
-async fn set_transcript(pool: &SqlitePool, item_id: i64, text: Option<&str>, status: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE items SET transcript_text = ?, transcript_status = ? WHERE id = ?")
-        .bind(text)
-        .bind(status)
-        .bind(item_id)
-        .execute(pool)
-        .await?;
-    Ok(())
 }
 
 /// Upsert the shared summary cache and refresh reading time (prompt.md §6, §6a).
@@ -289,11 +408,13 @@ async fn store_summary(
             .execute(pool)
             .await?;
     } else {
-        sqlx::query("UPDATE items SET reading_time_secs = COALESCE(reading_time_secs, ?) WHERE id = ?")
-            .bind(secs)
-            .bind(item_id)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "UPDATE items SET reading_time_secs = COALESCE(reading_time_secs, ?) WHERE id = ?",
+        )
+        .bind(secs)
+        .bind(item_id)
+        .execute(pool)
+        .await?;
     }
     Ok(())
 }
@@ -301,8 +422,14 @@ async fn store_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_pool;
 
-    fn item(kind: &str, transcript_status: &str, transcript: Option<&str>, text: Option<&str>) -> ItemRow {
+    fn item(
+        kind: &str,
+        transcript_status: &str,
+        transcript: Option<&str>,
+        text: Option<&str>,
+    ) -> ItemRow {
         ItemRow {
             title: Some("T".into()),
             content_text: text.map(String::from),
@@ -317,8 +444,34 @@ mod tests {
     }
 
     #[test]
+    fn video_url_prompt_asks_for_the_four_section_brief() {
+        let it = item("youtube", "none", None, None);
+        let p = build_video_url_prompt(&it);
+        for section in [
+            "chronological breakdown",
+            "Key takeaways",
+            "Questions this video answers",
+            "why watch it",
+        ] {
+            assert!(p.contains(section), "missing section: {section}");
+        }
+        assert!(p.contains("Title: T"));
+        // No conversational preamble ("Here is a summary of…") - the brief must start at section 1.
+        assert!(p.contains("no preamble"));
+    }
+
+    #[test]
+    fn video_output_budget_never_drops_below_the_brief_floor() {
+        // Thinking models spend maxOutputTokens on reasoning first; the comprehensive brief
+        // needs headroom beyond the global text-summary default (1024).
+        assert_eq!(video_max_tokens(1024), 4096);
+        assert_eq!(video_max_tokens(8192), 8192);
+    }
+
+    #[test]
     fn reading_prompt_uses_article_text() {
-        let (system, source, _) = build_prompt(&item("rss", "none", None, Some("article body")), false);
+        let (system, source, _) =
+            build_prompt(&item("rss", "none", None, Some("article body")), false);
         assert!(system.contains("summarize articles"));
         assert_eq!(source.as_deref(), Some("article body"));
     }
@@ -328,14 +481,180 @@ mod tests {
         let it = item("youtube", "fetched", Some("the transcript"), Some("desc"));
         let (system, source, _) = build_prompt(&it, true);
         assert!(system.contains("video transcripts"));
-        assert_eq!(source.as_deref(), Some("the transcript"), "prefers transcript over description");
+        assert_eq!(
+            source.as_deref(),
+            Some("the transcript"),
+            "prefers transcript over description"
+        );
     }
 
     #[test]
     fn video_without_captions_falls_back_to_description_labelled() {
         let it = item("youtube", "unavailable", None, Some("just the description"));
         let (system, source, _) = build_prompt(&it, true);
-        assert!(system.contains("No captions are available"), "description-based, labelled (§6a)");
+        assert!(
+            system.contains("No captions are available"),
+            "description-based, labelled (§6a)"
+        );
         assert_eq!(source.as_deref(), Some("just the description"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Video-provider path (§6a): summarize by video URL via native Gemini, with
+    // fallback to the transcript flow. Uses a local mock server - no real network.
+    // -----------------------------------------------------------------------
+
+    const ENC_KEY: [u8; 32] = [9u8; 32];
+
+    async fn spawn_mock(router: axum::Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    async fn make_provider(
+        pool: &SqlitePool,
+        provider_type: &str,
+        base_url: &str,
+        model: &str,
+        active: bool,
+    ) -> i64 {
+        let id = provider::create(
+            pool,
+            &ENC_KEY,
+            provider::NewProvider {
+                name: provider_type.to_string(),
+                provider_type: provider_type.to_string(),
+                api_style: crate::ai::ApiStyle::OpenAi,
+                base_url: base_url.to_string(),
+                model: model.to_string(),
+                key: Some("k".to_string()),
+            },
+        )
+        .await
+        .unwrap();
+        if active {
+            provider::activate(pool, id).await.unwrap();
+        }
+        id
+    }
+
+    async fn set_video_provider(pool: &SqlitePool, id: i64) {
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(provider::VIDEO_PROVIDER_KEY)
+        .bind(id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn make_video_item(
+        pool: &SqlitePool,
+        transcript_status: &str,
+        transcript_text: Option<&str>,
+    ) -> i64 {
+        let feed_id: i64 = sqlx::query(
+            "INSERT INTO feeds (feed_url, kind, fetch_interval_secs) VALUES ('https://example.com/yt', 'youtube', 3600) RETURNING id",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .get("id");
+        sqlx::query(
+            "INSERT INTO items (feed_id, dedup_hash, url, title, transcript_status, transcript_text, published_at)
+             VALUES (?, 'v1', 'https://www.youtube.com/watch?v=abc123xyz00', 'T', ?, ?, datetime('now')) RETURNING id",
+        )
+        .bind(feed_id)
+        .bind(transcript_status)
+        .bind(transcript_text)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .get("id")
+    }
+
+    #[tokio::test]
+    async fn video_provider_summarizes_by_url_without_touching_transcripts() {
+        let pool = test_pool().await;
+        // Native Gemini mock: providers store the OpenAI-compat base (…/openai); the video call
+        // must strip it and hit the native generateContent path.
+        let mock = spawn_mock(axum::Router::new().route(
+            "/models/gemini-vid:generateContent",
+            axum::routing::post(|| async {
+                axum::Json(serde_json::json!({
+                    "candidates": [{ "content": { "parts": [{ "text": "Video summary from Gemini." }] } }],
+                    "usageMetadata": { "totalTokenCount": 1000 }
+                }))
+            }),
+        ))
+        .await;
+        // Active provider is unreachable: success proves the video path was used.
+        make_provider(&pool, "groq", "http://127.0.0.1:9", "text-model", true).await;
+        let vp = make_provider(&pool, "gemini", &format!("{mock}/openai"), "gemini-vid", false).await;
+        set_video_provider(&pool, vp).await;
+        let item_id = make_video_item(&pool, "none", None).await;
+
+        let http = Client::new();
+        let res = summarize_item(&pool, &http, &ENC_KEY, item_id, false)
+            .await
+            .map_err(|_| "summarize failed")
+            .unwrap();
+        assert_eq!(res.summary, "Video summary from Gemini.");
+        assert_eq!(res.model, "gemini-vid");
+        assert!(!res.cached);
+
+        // The transcript was never lazily fetched (no youtube.com scraping on this path).
+        let row = sqlx::query("SELECT transcript_status, reading_time_secs FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("transcript_status"), "none");
+        // Reading time refreshed from the summary (video semantics).
+        assert!(row.get::<i64, _>("reading_time_secs") > 0);
+
+        // Second call hits the shared cache under the video provider's model.
+        let res2 = summarize_item(&pool, &http, &ENC_KEY, item_id, false)
+            .await
+            .map_err(|_| "summarize failed")
+            .unwrap();
+        assert!(res2.cached);
+        assert_eq!(res2.model, "gemini-vid");
+    }
+
+    #[tokio::test]
+    async fn video_provider_failure_falls_back_to_the_transcript_flow() {
+        let pool = test_pool().await;
+        // OpenAI-compat mock for the ACTIVE provider (the fallback target).
+        let mock = spawn_mock(axum::Router::new().route(
+            "/chat/completions",
+            axum::routing::post(|| async {
+                axum::Json(serde_json::json!({
+                    "choices": [{ "message": { "content": "Fallback summary" } }],
+                    "usage": { "total_tokens": 42 }
+                }))
+            }),
+        ))
+        .await;
+        make_provider(&pool, "groq", &mock, "text-model", true).await;
+        // Video provider points at a dead port → the video path fails fast and must fall back.
+        let vp = make_provider(&pool, "gemini", "http://127.0.0.1:9", "gemini-vid", false).await;
+        set_video_provider(&pool, vp).await;
+        // Transcript already fetched, so the fallback needs no youtube.com access either.
+        let item_id = make_video_item(&pool, "fetched", Some("the transcript text")).await;
+
+        let http = Client::new();
+        let res = summarize_item(&pool, &http, &ENC_KEY, item_id, false)
+            .await
+            .map_err(|_| "summarize failed")
+            .unwrap();
+        assert_eq!(res.summary, "Fallback summary");
+        assert_eq!(res.model, "text-model");
     }
 }

@@ -2,9 +2,12 @@
 //! configures providers and picks the active one; summaries land in the shared `item_summaries`
 //! cache keyed by (item, model) and are reused for every user (no duplicate token spend).
 //!
-//! Exactly **two** API styles exist — `openai` (OpenAI-compatible `/chat/completions`, covers
+//! Exactly **two** API styles exist - `openai` (OpenAI-compatible `/chat/completions`, covers
 //! Groq/OpenAI/Gemini/Mistral/Ollama/custom) and `anthropic` (`/messages`). No provider-specific
-//! code beyond the two [`LlmClient`] implementations in [`client`].
+//! code beyond the two [`LlmClient`] implementations in [`client`], with one deliberate
+//! exception: [`client::gemini_video_complete`], a video-only native-Gemini call used when the
+//! admin sets a dedicated video provider (§6a) - Gemini's OpenAI-compatible endpoint cannot
+//! accept a YouTube `file_uri`, and Gemini is the only supported provider that understands video.
 
 pub mod budget;
 pub mod client;
@@ -12,6 +15,7 @@ pub mod crypto;
 pub mod provider;
 pub mod summarize;
 pub mod transcript;
+pub mod transcript_worker;
 
 use axum::async_trait;
 use serde::Serialize;
@@ -68,13 +72,22 @@ impl AiParams {
     pub async fn load(pool: &sqlx::SqlitePool) -> Self {
         let d = AiParams::default();
         Self {
-            max_tokens: get_int(pool, "ai.max_tokens", d.max_tokens as i64).await.clamp(64, 8192) as u32,
-            temperature: (get_int(pool, "ai.temperature_x100", (d.temperature * 100.0) as i64).await
+            max_tokens: get_int(pool, "ai.max_tokens", d.max_tokens as i64)
+                .await
+                .clamp(64, 8192) as u32,
+            temperature: (get_int(pool, "ai.temperature_x100", (d.temperature * 100.0) as i64)
+                .await
                 .clamp(0, 200) as f32)
                 / 100.0,
-            timeout_secs: get_int(pool, "ai.timeout_secs", d.timeout_secs as i64).await.clamp(5, 300) as u64,
-            daily_token_budget: get_int(pool, "ai.daily_token_budget", d.daily_token_budget).await.max(0),
-            monthly_token_budget: get_int(pool, "ai.monthly_token_budget", d.monthly_token_budget).await.max(0),
+            timeout_secs: get_int(pool, "ai.timeout_secs", d.timeout_secs as i64)
+                .await
+                .clamp(5, 300) as u64,
+            daily_token_budget: get_int(pool, "ai.daily_token_budget", d.daily_token_budget)
+                .await
+                .max(0),
+            monthly_token_budget: get_int(pool, "ai.monthly_token_budget", d.monthly_token_budget)
+                .await
+                .max(0),
         }
     }
 }
@@ -108,7 +121,7 @@ pub struct LlmResponse {
 /// Provider call failure, with a user-safe message (never contains the key).
 #[derive(Debug)]
 pub enum LlmError {
-    /// Network/timeout — transient.
+    /// Network/timeout - transient.
     Network(String),
     /// Non-2xx from the provider (body captured, but keys are never in a request echo).
     Api { status: u16, message: String },
@@ -135,7 +148,7 @@ impl std::fmt::Display for LlmError {
     }
 }
 
-/// One concrete LLM backend. Two implementations only (openai, anthropic) — see [`client`].
+/// One concrete LLM backend. Two implementations only (openai, anthropic) - see [`client`].
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     async fn complete(&self, req: &LlmRequest) -> Result<LlmResponse, LlmError>;
@@ -187,7 +200,7 @@ pub fn presets() -> Vec<Preset> {
             name: "Google Gemini",
             base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
             api_style: "openai",
-            default_model: "gemini-2.0-flash",
+            default_model: "gemini-3.5-flash",
             needs_key: true,
         },
         Preset {

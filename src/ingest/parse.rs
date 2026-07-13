@@ -17,9 +17,14 @@ pub fn parse_feed(
     cfg: &IngestSettings,
     fetched_at: DateTime<Utc>,
 ) -> Result<ParsedFeed> {
-    let feed = feed_rs::parser::parse(bytes).context("could not parse feed (unsupported/malformed)")?;
+    let feed =
+        feed_rs::parser::parse(bytes).context("could not parse feed (unsupported/malformed)")?;
 
-    let title = feed.title.as_ref().map(|t| t.content.trim().to_string()).filter(|s| !s.is_empty());
+    let title = feed
+        .title
+        .as_ref()
+        .map(|t| t.content.trim().to_string())
+        .filter(|s| !s.is_empty());
     let site_url = pick_site_link(&feed).or_else(|| Some(feed_url.to_string()));
     let icon_url = feed
         .icon
@@ -32,9 +37,15 @@ pub fn parse_feed(
         .entries
         .iter()
         .map(|e| parse_entry(e, feed_url, is_video, cfg, fetched_at))
+        .filter(|item| !(is_video && is_youtube_short(item.url.as_deref())))
         .collect();
 
-    Ok(ParsedFeed { title, site_url, icon_url, items })
+    Ok(ParsedFeed {
+        title,
+        site_url,
+        icon_url,
+        items,
+    })
 }
 
 fn parse_entry(
@@ -47,7 +58,11 @@ fn parse_entry(
     let url = pick_entry_link(e).or_else(|| Some(feed_url.to_string()));
     let base = url.as_deref().unwrap_or(feed_url);
 
-    let title = e.title.as_ref().map(|t| t.content.trim().to_string()).filter(|s| !s.is_empty());
+    let title = e
+        .title
+        .as_ref()
+        .map(|t| t.content.trim().to_string())
+        .filter(|s| !s.is_empty());
     let author = e
         .authors
         .first()
@@ -77,7 +92,9 @@ fn parse_entry(
     let published_at = e.published.or(e.updated).unwrap_or(fetched_at);
 
     let duration_secs = if is_video {
-        e.media.iter().find_map(|m| m.duration.map(|d| d.as_secs() as i64))
+        e.media
+            .iter()
+            .find_map(|m| m.duration.map(|d| d.as_secs() as i64))
     } else {
         None
     };
@@ -85,7 +102,12 @@ fn parse_entry(
     let reading_time_secs = Some(content::reading_time_secs(&content_text));
 
     let guid = Some(e.id.clone()).filter(|g| !g.trim().is_empty());
-    let dedup_hash = dedup_key(guid.as_deref(), url.as_deref(), title.as_deref(), Some(&content_text));
+    let dedup_hash = dedup_key(
+        guid.as_deref(),
+        url.as_deref(),
+        title.as_deref(),
+        Some(&content_text),
+    );
 
     ParsedItem {
         guid,
@@ -116,6 +138,13 @@ fn media_image(e: &Entry) -> Option<String> {
         }
     }
     None
+}
+
+/// True for a YouTube Shorts link (`youtube.com/shorts/<id>`) - the channel feed marks these
+/// distinctly from regular `/watch?v=` videos, so they're excluded at ingest ("just regular
+/// videos", prompt.md §3) without needing any extra request.
+fn is_youtube_short(url: Option<&str>) -> bool {
+    url.map(|u| u.contains("/shorts/")).unwrap_or(false)
 }
 
 fn pick_entry_link(e: &Entry) -> Option<String> {
@@ -155,8 +184,17 @@ mod tests {
     #[test]
     fn parses_rss_with_sanitize_and_date_fallback() {
         let cfg = IngestSettings::default();
-        let now = DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z").unwrap().with_timezone(&Utc);
-        let feed = parse_feed(RSS.as_bytes(), "https://ex.com/rss", FeedKind::Rss, &cfg, now).unwrap();
+        let now = DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let feed = parse_feed(
+            RSS.as_bytes(),
+            "https://ex.com/rss",
+            FeedKind::Rss,
+            &cfg,
+            now,
+        )
+        .unwrap();
         assert_eq!(feed.title.as_deref(), Some("Example"));
         assert_eq!(feed.items.len(), 2);
 
@@ -168,5 +206,62 @@ mod tests {
 
         // Second item has no pubDate → falls back to fetched_at (not null).
         assert_eq!(feed.items[1].published_at, now);
+    }
+
+    const YOUTUBE_ATOM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <title>Example Channel</title>
+      <entry>
+        <id>yt:video:regular1</id>
+        <title>A regular video</title>
+        <link rel="alternate" href="https://www.youtube.com/watch?v=regular1"/>
+        <published>2025-01-01T00:00:00+00:00</published>
+      </entry>
+      <entry>
+        <id>yt:video:short1</id>
+        <title>A short</title>
+        <link rel="alternate" href="https://www.youtube.com/shorts/short1"/>
+        <published>2025-01-01T00:00:00+00:00</published>
+      </entry>
+    </feed>"#;
+
+    #[test]
+    fn youtube_shorts_are_excluded_regular_videos_are_kept() {
+        let cfg = IngestSettings::default();
+        let now = DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let feed = parse_feed(
+            YOUTUBE_ATOM.as_bytes(),
+            "https://yt.example/feed",
+            FeedKind::Youtube,
+            &cfg,
+            now,
+        )
+        .unwrap();
+        assert_eq!(feed.items.len(), 1, "the Short must be filtered out");
+        assert_eq!(
+            feed.items[0].url.as_deref(),
+            Some("https://www.youtube.com/watch?v=regular1")
+        );
+    }
+
+    #[test]
+    fn shorts_style_urls_are_not_filtered_on_non_youtube_feeds() {
+        let cfg = IngestSettings::default();
+        let now = DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        // Same fixture, but parsed as a plain RSS/Atom feed - the shorts-path filter is
+        // YouTube-specific, so it must not accidentally drop unrelated items on other feeds.
+        let feed = parse_feed(
+            YOUTUBE_ATOM.as_bytes(),
+            "https://yt.example/feed",
+            FeedKind::Rss,
+            &cfg,
+            now,
+        )
+        .unwrap();
+        assert_eq!(feed.items.len(), 2);
     }
 }
