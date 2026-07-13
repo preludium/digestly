@@ -85,16 +85,3 @@ export function useRefreshFeed() {
         onSuccess: invalidate,
     });
 }
-
-/** Top-bar "refresh all" (§9.0): re-poll every subscription in one request, then refetch items. */
-export function useRefreshAll() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: () =>
-            api.post<{ ok: boolean; feeds: number }>("/feeds/refresh-all"),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ["items"] });
-            qc.invalidateQueries({ queryKey: HEALTH_KEY });
-        },
-    });
-}

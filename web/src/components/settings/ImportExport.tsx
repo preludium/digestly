@@ -1,5 +1,6 @@
 import { Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { ConnectedAccounts } from "@/components/settings/ConnectedAccounts";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,6 @@ import {
     useOpmlPreview,
 } from "@/hooks/useOpml";
 import type { OpmlImportItem, OpmlPreviewEntry } from "@/lib/types";
-import { toast } from "@/stores/toast";
 
 type Row = OpmlPreviewEntry & { category_edit: string; include: boolean };
 
@@ -35,9 +35,8 @@ export function ImportExport() {
                     })),
                 ),
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not read OPML",
-                    "error",
                 ),
         });
     };
@@ -53,29 +52,25 @@ export function ImportExport() {
                 category: r.category_edit.trim() || "Other",
             }));
         if (items.length === 0) {
-            toast("Select at least one feed to import", "error");
+            toast.error("Select at least one feed to import");
             return;
         }
         doImport.mutate(items, {
             onSuccess: (res) => {
-                toast(
+                toast.success(
                     `Imported ${res.imported}, skipped ${res.skipped}`,
-                    "success",
                 );
                 setRows(null);
                 if (fileRef.current) fileRef.current.value = "";
             },
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Import failed",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Import failed"),
         });
     };
 
     const doExport = () =>
         downloadOpmlExport().catch((e) =>
-            toast(e instanceof Error ? e.message : "Export failed", "error"),
+            toast.error(e instanceof Error ? e.message : "Export failed"),
         );
 
     return (

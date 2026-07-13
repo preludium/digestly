@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,6 @@ import {
 } from "@/hooks/useAdmin";
 import { useMe } from "@/hooks/useAuth";
 import type { AdminUser } from "@/lib/types";
-import { toast } from "@/stores/toast";
 
 const BUILTIN_ADMIN = "admin";
 
@@ -48,9 +48,8 @@ function RegistrationToggle() {
                             { allow_registration: !enabled },
                             {
                                 onSuccess: () =>
-                                    toast(
+                                    toast.success(
                                         `Registration ${!enabled ? "enabled" : "disabled"}`,
-                                        "success",
                                     ),
                             },
                         )
@@ -134,8 +133,7 @@ function UserRow({ user, meId }: { user: AdminUser; meId: number }) {
                         destructive
                         onConfirm={() => {
                             del.mutate(user.id, {
-                                onSuccess: () =>
-                                    toast("User deleted", "success"),
+                                onSuccess: () => toast.success("User deleted"),
                             });
                         }}
                     />

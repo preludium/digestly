@@ -26,7 +26,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 function navBtn(active: boolean): string {
     return cn(
-        "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+        "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-semibold transition-colors hover:cursor-pointer",
         active
             ? "bg-primary/10 text-primary"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",

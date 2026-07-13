@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +16,6 @@ import { Switch } from "@/components/ui/switch";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
 import type { UserSettings } from "@/lib/types";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 
 type Form = Omit<UserSettings, "onboarded">;
@@ -39,10 +39,7 @@ export function GeneralSettings() {
     useAutosave(form, (f) =>
         update.mutate(f, {
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         }),
     );
 

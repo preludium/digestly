@@ -1,5 +1,6 @@
 import { Check, Rss } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { PasskeyManager } from "@/components/PasskeyManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,6 @@ import {
     useUpdateSettings,
 } from "@/hooks/useSettings";
 import { passkeysSupported } from "@/lib/webauthn";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 
 /** First-run onboarding (prompt.md §9.11) - shown once per new account (gated on the `onboarded`
@@ -38,15 +38,13 @@ export function Onboarding() {
         starter.mutate(undefined, {
             onSuccess: (r) => {
                 setAddedStarter(true);
-                toast(
+                toast.success(
                     `Added ${r.added} starter feed${r.added === 1 ? "" : "s"}`,
-                    "success",
                 );
             },
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not add feeds",
-                    "error",
                 ),
         });
 
@@ -55,9 +53,8 @@ export function Onboarding() {
             { timezone: tz, onboarded: true },
             {
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not save",
-                        "error",
                     ),
             },
         );

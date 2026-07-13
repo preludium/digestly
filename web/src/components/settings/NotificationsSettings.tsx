@@ -1,5 +1,6 @@
 import { Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
     SETTINGS_TILE_CLASS,
@@ -25,7 +26,6 @@ import {
 } from "@/hooks/useNotifications";
 import type { PutNotifications } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 /** Notifications (ntfy) tab (prompt.md §7a, §9.7) - every user configures their own push channel:
  *  server URL, topic, write-only auth token, priority, per-event toggles. Autosaves (debounced)
@@ -78,10 +78,7 @@ export function NotificationsSettings() {
                 }
             },
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         });
     });
 
@@ -104,11 +101,10 @@ export function NotificationsSettings() {
                     setHasToken(false);
                 },
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error
                             ? e.message
                             : "Could not clear token",
-                        "error",
                     ),
             },
         );
@@ -116,14 +112,11 @@ export function NotificationsSettings() {
     const runTest = () =>
         test.mutate(undefined, {
             onSuccess: (r) =>
-                toast(
-                    r.ok
-                        ? "Test push sent"
-                        : `Test failed: ${r.error ?? "unknown error"}`,
-                    r.ok ? "success" : "error",
-                ),
+                r.ok
+                    ? toast.success("Test push sent")
+                    : toast.error(`Test failed: ${r.error ?? "unknown error"}`),
             onError: (e) =>
-                toast(e instanceof Error ? e.message : "Test failed", "error"),
+                toast.error(e instanceof Error ? e.message : "Test failed"),
         });
 
     return (

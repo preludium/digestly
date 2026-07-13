@@ -1,5 +1,6 @@
 import { ChevronDown, Plus, Search } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,6 @@ import {
 } from "@/lib/format";
 import type { ContentType, DiscoverCandidate } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 
 /** Add / subscribe flow (prompt.md §9.3): discover → pick → required category → subscribe. */
@@ -84,7 +84,7 @@ function AddFeedBody({ onDone }: { onDone: () => void }) {
     // Fallback: treat the raw input as a direct feed URL when discovery finds nothing.
     const useRawUrl = () => {
         if (!/^https?:\/\//i.test(input.trim())) {
-            toast("Enter a full http(s):// feed URL", "error");
+            toast.error("Enter a full http(s):// feed URL");
             return;
         }
         setSelected({
@@ -225,18 +225,17 @@ function ConfigureStep({
                 setNewCategory("");
             },
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error
                         ? e.message
                         : "Could not create category",
-                    "error",
                 ),
         });
     };
 
     const submit = () => {
         if (categoryId === "") {
-            toast("Choose a category first", "error");
+            toast.error("Choose a category first");
             return;
         }
         subscribe.mutate(
@@ -253,13 +252,12 @@ function ConfigureStep({
             },
             {
                 onSuccess: () => {
-                    toast("Feed added", "success");
+                    toast.success("Feed added");
                     onDone();
                 },
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not subscribe",
-                        "error",
                     ),
             },
         );

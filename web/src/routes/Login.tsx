@@ -1,6 +1,7 @@
 import { KeyRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { AuthCard, FieldError } from "@/components/common/AuthCard";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,6 @@ import {
     isCancellation,
     passkeysSupported,
 } from "@/lib/webauthn";
-import { toast } from "@/stores/toast";
 
 export function Login() {
     const navigate = useNavigate();
@@ -74,7 +74,7 @@ export function Login() {
 
     const signInWithPasskey = async () => {
         if (!username.trim()) {
-            toast("Enter your username, then use your passkey", "error");
+            toast.error("Enter your username, then use your passkey");
             return;
         }
         conditionalAbort.current?.abort();
@@ -83,9 +83,8 @@ export function Login() {
             navigate("/", { replace: true });
         } catch (e) {
             if (isCancellation(e)) return; // user dismissed the prompt - no error
-            toast(
+            toast.error(
                 e instanceof Error ? e.message : "Passkey sign-in failed",
-                "error",
             );
         }
     };

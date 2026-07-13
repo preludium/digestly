@@ -6,6 +6,7 @@ mod config;
 mod db;
 mod digest;
 mod error;
+mod events;
 mod healthcheck;
 mod http;
 mod ingest;
@@ -82,6 +83,9 @@ async fn main() -> Result<()> {
     // scheduler for refresh-now / new subscriptions.
     let http_client = ingest::fetch::build_client();
     let ingest_trigger: ingest::IngestTrigger = Arc::new(Notify::new());
+    // Live push channel to open browser tabs: the scheduler reports every completed feed
+    // poll here, which is how an "Ingest now" run reaches the user's toast and refreshes their feed.
+    let events = events::EventBus::new();
     // Notified by the scheduler whenever a YouTube feed poll stores new items, so the background
     // transcript worker fetches captions shortly after ingest instead of on its own idle tick.
     let new_video_trigger: ai::transcript_worker::TranscriptTrigger = Arc::new(Notify::new());
@@ -94,6 +98,7 @@ async fn main() -> Result<()> {
         cfg.reddit_oauth.clone(),
         ingest_trigger.clone(),
         new_video_trigger.clone(),
+        events.clone(),
     );
     let transcript_worker =
         ai::transcript_worker::spawn(pool.clone(), http_client.clone(), new_video_trigger);
@@ -125,6 +130,7 @@ async fn main() -> Result<()> {
         enc_key,
         http_client,
         ingest_trigger,
+        events,
         webauthn,
         passkey_ceremonies: auth::passkey::CeremonyStore::new(),
         oauth,

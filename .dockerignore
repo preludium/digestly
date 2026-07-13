@@ -1,0 +1,25 @@
+# Build artifacts
+target/
+web/node_modules/
+web/dist/
+node_modules/
+
+# Local data & secrets
+data/
+*.db
+*.db-*
+.env
+.env.*
+
+# VCS & tooling
+.git/
+.github/
+.claude/
+openwiki/
+
+# Docs & editor cruft
+*.md
+!README.md
+.DS_Store
+.vscode/
+.idea/

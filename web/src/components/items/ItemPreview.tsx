@@ -8,6 +8,7 @@ import {
     TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Markdown } from "@/components/common/Markdown";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +29,6 @@ import {
 import { topicBadgeClass } from "@/lib/topicColor";
 import type { Item, ItemDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 /** The reading surface (§9.1a). Full-width overlay on mobile, right sheet ≥820px. Reading items
  *  render sanitized HTML; video items are shown AS TEXT (summary slot → transcript → watch link).
@@ -163,7 +163,6 @@ function PreviewBody({
                 >
                     {view.category}
                 </Badge>
-                {isVideo && <Badge variant="outline">shown as text</Badge>}
             </div>
 
             <h1 className="text-xl font-bold leading-tight">
@@ -301,9 +300,8 @@ function SummarySlot({ view }: { view: Item & Partial<ItemDetail> }) {
             { id: view.id, force },
             {
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not summarize",
-                        "error",
                     ),
             },
         );

@@ -1,5 +1,6 @@
 import { KeyRound, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { NameDialog } from "@/components/common/NameDialog";
@@ -13,7 +14,6 @@ import {
 } from "@/hooks/usePasskeys";
 import { formatDateTime } from "@/lib/format";
 import { isCancellation, passkeysSupported } from "@/lib/webauthn";
-import { toast } from "@/stores/toast";
 
 /** Passkey list + add/rename/delete (prompt.md §9.12). Reused by Profile and Onboarding. */
 export function PasskeyManager({ compact = false }: { compact?: boolean }) {
@@ -36,12 +36,11 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
     const handleAdd = async (name: string) => {
         try {
             await register.mutateAsync(name || undefined);
-            toast("Passkey added", "success");
+            toast.success("Passkey added");
         } catch (e) {
             if (isCancellation(e)) return;
-            toast(
+            toast.error(
                 e instanceof Error ? e.message : "Could not add passkey",
-                "error",
             );
         }
     };
@@ -52,9 +51,8 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
             { id: renaming.id, name },
             {
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Rename failed",
-                        "error",
                     ),
             },
         );
@@ -63,12 +61,9 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
     const handleDelete = () => {
         if (!deleting) return;
         remove.mutate(deleting.id, {
-            onSuccess: () => toast("Passkey removed", "success"),
+            onSuccess: () => toast.success("Passkey removed"),
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Delete failed",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Delete failed"),
         });
     };
 

@@ -12,6 +12,7 @@ import {
     Users,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { AddFeedModal } from "@/components/feeds/AddFeedModal";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,10 +41,10 @@ import {
 } from "@/components/ui/sidebar";
 import { useLogout } from "@/hooks/useAuth";
 import { useUnhealthyCount } from "@/hooks/useFeeds";
+import { useIngestEvents } from "@/hooks/useIngest";
 import { useUnreadCount } from "@/hooks/useItems";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 
 interface NavItem {
@@ -109,7 +110,7 @@ function AccountMenu({ user }: { user: User }) {
             <DropdownMenuTrigger asChild>
                 <button
                     type="button"
-                    className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-muted"
+                    className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-muted hover:cursor-pointer"
                     aria-label="Account menu"
                 >
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
@@ -163,6 +164,9 @@ export function AppShell({ user }: { user: User }) {
     const isAdmin = user.role === "admin";
     const navigate = useNavigate();
     const unread = useUnreadCount();
+    // One live connection for the whole session: drives the ingest toast and refreshes the feed
+    // the moment ingestion ends.
+    useIngestEvents();
 
     return (
         <SidebarProvider>

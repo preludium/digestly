@@ -374,3 +374,20 @@ export interface IngestionSettings {
     retention_max_age_days: number;
     retention_max_per_feed: number;
 }
+
+/** The caller's in-flight "Ingest now" run + cooldown (`GET /api/ingest/status`). */
+export interface IngestStatus {
+    run: { run_id: number; done: number; total: number } | null;
+    cooldown_secs: number;
+}
+
+/** Pushed over the SSE stream (`GET /api/events`). Discriminated on `type`. */
+export type ServerEvent =
+    | { type: "feed_polled"; run_id: number; done: number; total: number }
+    | {
+          type: "ingest_finished";
+          run_id: number;
+          new_items: number;
+          failed: number;
+          timed_out: boolean;
+      };

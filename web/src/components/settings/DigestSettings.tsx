@@ -1,5 +1,6 @@
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
@@ -22,7 +23,6 @@ import {
 } from "@/hooks/useDigest";
 import type { PutDigestConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 /** Digest engine tab (admin-only, prompt.md §7, §9.7): enable, cron + human preview, look-back,
  *  categories, AI on/off, and Run-now (runs for all users). Server enforces the admin role (§11). */
@@ -70,10 +70,7 @@ export function DigestSettings() {
     useAutosave(form, (f) =>
         update.mutate(f, {
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         }),
     );
 
@@ -114,14 +111,12 @@ export function DigestSettings() {
     const doRun = () => {
         run.mutate(runOverride, {
             onSuccess: (s) =>
-                toast(
+                toast.success(
                     `Digest ran - ${s.digests} generated, ${s.pushed} pushed`,
-                    "success",
                 ),
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Digest run failed",
-                    "error",
                 ),
         });
     };

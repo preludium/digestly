@@ -7,6 +7,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -45,7 +46,6 @@ import {
 } from "@/hooks/useFeeds";
 import { formatDateTime, kindIcon, relativeTime } from "@/lib/format";
 import type { Feed, FeedHealth, FeedStatus } from "@/lib/types";
-import { toast } from "@/stores/toast";
 
 const STATUS_BADGE: Record<
     FeedStatus,
@@ -258,22 +258,20 @@ function ActionsMenu({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                     <DropdownMenuItem
-                        className="text-success focus:bg-success/10 focus:text-success"
                         disabled={refresh.isPending}
                         onClick={() =>
                             refresh.mutate(row.id, {
                                 onSuccess: () =>
-                                    toast(
+                                    toast.success(
                                         row.status === "disabled"
                                             ? "Re-enabled"
                                             : "Retrying…",
-                                        "success",
                                     ),
                             })
                         }
                     >
                         <RefreshCw className="size-4" />{" "}
-                        {row.status === "disabled" ? "Re-enable" : "Retry now"}
+                        {row.status === "disabled" ? "Re-enable" : "Retry"}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onEdit(row.id)}>
                         <Pencil className="size-4" /> Edit
@@ -295,7 +293,7 @@ function ActionsMenu({
                 onConfirm={() => {
                     unsubscribe.mutate(removing!.id, {
                         onSuccess: () => {
-                            toast("Unsubscribed", "success");
+                            toast.success("Unsubscribed");
                             setRemoving(null);
                         },
                     });

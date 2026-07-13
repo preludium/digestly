@@ -1,6 +1,10 @@
 import { ImageIcon, MessageSquare, Play, Star, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatDuration, readingTimeLabel, relativeTime } from "@/lib/format";
+import {
+    formatDuration,
+    readingTimeLabel,
+    relativeTimeLong,
+} from "@/lib/format";
 import { highlight } from "@/lib/highlight";
 import { topicBadgeClass } from "@/lib/topicColor";
 import type { Item } from "@/lib/types";
@@ -77,11 +81,9 @@ export function ItemCard({
                 >
                     {highlight(item.title ?? "Untitled", query)}
                 </h3>
-                <p className="text-xs text-muted-foreground">
-                    <span className="font-medium">{item.feed_title}</span>
-                    {item.published_at && (
-                        <> · {relativeTime(item.published_at)}</>
-                    )}
+                <p className="flex gap-x-3 text-xs text-muted-foreground">
+                    <span className="font-bold">{item.feed_title}</span>
+                    {item.published_at && relativeTimeLong(item.published_at)}
                 </p>
                 {item.snippet && (
                     <p className="line-clamp-2 text-sm text-muted-foreground">

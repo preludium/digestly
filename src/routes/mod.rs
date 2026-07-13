@@ -6,6 +6,7 @@ pub mod ai;
 pub mod auth;
 pub mod categories;
 pub mod digest;
+pub mod events;
 pub mod feeds;
 pub mod items;
 pub mod me;
@@ -26,6 +27,7 @@ pub fn api_router() -> Router<AppState> {
         .merge(me::routes())
         .merge(admin::routes())
         .merge(categories::routes())
+        .merge(events::routes())
         .merge(feeds::routes())
         .merge(items::routes())
         .merge(ai::routes())

@@ -8,6 +8,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -46,7 +47,6 @@ import { useFeeds, useRefreshFeed, useUnsubscribe } from "@/hooks/useFeeds";
 import { kindIcon, kindLabel } from "@/lib/format";
 import type { Category, Feed } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 import { sortCategoriesOtherLast } from "./manage.helpers";
 
@@ -81,11 +81,10 @@ export function Manage() {
 
     const handleCreateCategory = (name: string) => {
         createCategory.mutate(name, {
-            onSuccess: () => toast("Category created", "success"),
+            onSuccess: () => toast.success("Category created"),
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not create",
-                    "error",
                 ),
         });
     };
@@ -215,11 +214,10 @@ function CategoryCard({
         rename.mutate(
             { id: category.id, name },
             {
-                onSuccess: () => toast("Category renamed", "success"),
+                onSuccess: () => toast.success("Category renamed"),
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not rename",
-                        "error",
                     ),
             },
         );
@@ -228,11 +226,10 @@ function CategoryCard({
     const handleDelete = () => {
         del.mutate(category.id, {
             onSuccess: () =>
-                toast("Category deleted; feeds moved to Other", "success"),
+                toast.success("Category deleted; feeds moved to Other"),
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not delete",
-                    "error",
                 ),
         });
     };
@@ -392,11 +389,11 @@ function FeedRow({ feed, onEdit }: { feed: Feed; onEdit: (f: Feed) => void }) {
                             disabled={refresh.isPending}
                             onClick={() =>
                                 refresh.mutate(feed.id, {
-                                    onSuccess: () => toast("Refreshing…"),
+                                    onSuccess: () => toast("Ingesting…"),
                                 })
                             }
                         >
-                            <RefreshCw className="size-4" /> Refresh
+                            <RefreshCw className="size-4" /> Ingest
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onEdit(feed)}>
                             <Pencil className="size-4" /> Edit
@@ -418,7 +415,7 @@ function FeedRow({ feed, onEdit }: { feed: Feed; onEdit: (f: Feed) => void }) {
                 destructive
                 onConfirm={() => {
                     unsubscribe.mutate(feed.id, {
-                        onSuccess: () => toast("Unsubscribed", "success"),
+                        onSuccess: () => toast.success("Unsubscribed"),
                     });
                 }}
             />

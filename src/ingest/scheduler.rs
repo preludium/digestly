@@ -17,6 +17,7 @@ use super::fetch::{self, Conditional, FetchError, FetchOutcome};
 use super::settings::IngestSettings;
 use super::{parse, reddit, store, url_util, FeedKind, ParsedFeed};
 use crate::config::OAuthClient;
+use crate::events::{Events, PollOutcome};
 use crate::oauth;
 
 /// Wake handle: notify to trigger an immediate poll (refresh-now / new subscription).
@@ -40,6 +41,8 @@ const BATCH: i64 = 50;
 /// env vars) - when set, and some user has connected their Reddit account, the scheduler prefers
 /// Reddit's authenticated API for polling subreddit feeds, since the public JSON endpoint gets
 /// rate-limited/blocked when unauthenticated and score/comment data is lost.
+/// `events` is the live event bus: every completed feed poll is reported into it, which is
+/// how an "Ingest now" run learns it is finished and the browser learns to refetch.
 pub fn spawn(
     pool: SqlitePool,
     client: Client,
@@ -47,6 +50,7 @@ pub fn spawn(
     reddit_oauth: Option<OAuthClient>,
     trigger: IngestTrigger,
     new_video_trigger: Arc<Notify>,
+    events: Events,
 ) -> JoinHandle<()> {
     let scheduler = Arc::new(Scheduler {
         pool,
@@ -54,6 +58,7 @@ pub fn spawn(
         enc_key,
         reddit_oauth,
         new_video_trigger,
+        events,
         host_locks: Arc::new(StdMutex::new(HashMap::new())),
     });
     tokio::spawn(async move {
@@ -63,6 +68,9 @@ pub fn spawn(
                 _ = trigger.notified() => debug!("ingestion triggered"),
                 _ = tokio::time::sleep(TICK) => {}
             }
+            // Force-finish any run whose feeds can no longer report back, so a stuck feed can't
+            // leave a client's toast spinning forever.
+            scheduler.events.sweep();
             if let Err(e) = scheduler.tick().await {
                 warn!(error = %e, "ingestion tick failed");
             }
@@ -80,6 +88,7 @@ struct Scheduler {
     enc_key: [u8; 32],
     reddit_oauth: Option<OAuthClient>,
     new_video_trigger: Arc<Notify>,
+    events: Events,
     host_locks: HostLocks,
 }
 
@@ -117,10 +126,17 @@ impl Scheduler {
             set.spawn(async move {
                 let _permit = sem.acquire_owned().await;
                 let id = feed.id;
-                if let Err(e) = scheduler.process_feed(&cfg, feed).await {
-                    // Isolated: log + record, never propagate a panic to the loop.
-                    warn!(feed_id = id, error = %e, "feed processing error");
-                }
+                let outcome = match scheduler.process_feed(&cfg, feed).await {
+                    Ok(outcome) => outcome,
+                    Err(e) => {
+                        // Isolated: log + record, never propagate a panic to the loop.
+                        warn!(feed_id = id, error = %e, "feed processing error");
+                        PollOutcome::failed()
+                    }
+                };
+                // Always reported, success or not: a run waiting on this feed must complete even
+                // when the poll failed, or the user's toast would hang on a dead feed.
+                scheduler.events.feed_done(id, outcome);
             });
         }
         while set.join_next().await.is_some() {}
@@ -158,7 +174,11 @@ async fn select_due(pool: &SqlitePool) -> anyhow::Result<Vec<DueFeed>> {
 impl Scheduler {
     /// Fetch → parse → sanitize → dedup → store one feed, updating its health state. Per-host
     /// politeness is enforced by holding the host's async lock for the whole operation.
-    async fn process_feed(&self, cfg: &IngestSettings, feed: DueFeed) -> anyhow::Result<()> {
+    async fn process_feed(
+        &self,
+        cfg: &IngestSettings,
+        feed: DueFeed,
+    ) -> anyhow::Result<PollOutcome> {
         let host = url_util::host_of(&feed.feed_url);
         let lock = host_lock(&self.host_locks, &host);
         let mut last = lock.lock().await;
@@ -190,7 +210,11 @@ impl Scheduler {
     }
 
     /// RSS/Atom/JSON/YouTube path with conditional GET.
-    async fn process_generic(&self, cfg: &IngestSettings, feed: &DueFeed) -> anyhow::Result<()> {
+    async fn process_generic(
+        &self,
+        cfg: &IngestSettings,
+        feed: &DueFeed,
+    ) -> anyhow::Result<PollOutcome> {
         let cond = Conditional {
             etag: feed.etag.as_deref(),
             last_modified: feed.last_modified.as_deref(),
@@ -198,6 +222,7 @@ impl Scheduler {
         match fetch::get(&self.client, &feed.feed_url, &cond, cfg).await {
             Ok(FetchOutcome::NotModified) => {
                 store::record_not_modified(&self.pool, feed.id, feed.interval).await?;
+                Ok(PollOutcome::unchanged())
             }
             Ok(FetchOutcome::Fetched(fetched)) => {
                 let mut parsed =
@@ -211,25 +236,30 @@ impl Scheduler {
                 if feed.kind == FeedKind::Youtube && n > 0 {
                     self.new_video_trigger.notify_one();
                 }
+                Ok(PollOutcome::stored(n))
             }
             Err(e) => {
                 log_failure(feed.id, &e);
                 let transition = store::record_failure(&self.pool, feed.id, &e).await?;
                 self.on_failure_transition(feed.id, transition).await;
+                Ok(PollOutcome::failed())
             }
         }
-        Ok(())
     }
 
     /// Reddit path: authenticated API first (if a Reddit account is connected instance-wide), then
     /// the public JSON endpoint (score/comments), then `.rss` with NULL metrics as a last resort.
-    async fn process_reddit(&self, cfg: &IngestSettings, feed: &DueFeed) -> anyhow::Result<()> {
+    async fn process_reddit(
+        &self,
+        cfg: &IngestSettings,
+        feed: &DueFeed,
+    ) -> anyhow::Result<PollOutcome> {
         let sub = reddit::subreddit_from_url(&feed.feed_url).unwrap_or_default();
         if sub.is_empty() {
             let e = FetchError::Disable("could not determine subreddit from URL".into());
             let transition = store::record_failure(&self.pool, feed.id, &e).await?;
             self.on_failure_transition(feed.id, transition).await;
-            return Ok(());
+            return Ok(PollOutcome::failed());
         }
 
         // Prefer Reddit's authenticated API when some user has connected their account - it isn't
@@ -250,7 +280,7 @@ impl Scheduler {
                     };
                     store::record_success(&self.pool, feed.id, &fetched, feed.interval).await?;
                     info!(feed_id = feed.id, new_items = n, "polled reddit (oauth)");
-                    return Ok(());
+                    return Ok(PollOutcome::stored(n));
                 }
                 Err(e) => {
                     warn!(feed_id = feed.id, subreddit = %sub, error = %e,
@@ -271,11 +301,11 @@ impl Scheduler {
                     store_parsed(&self.pool, feed.id, &subreddit_feed(&sub, items), cfg).await?;
                 store::record_success(&self.pool, feed.id, &fetched, feed.interval).await?;
                 info!(feed_id = feed.id, new_items = n, "polled reddit (json)");
-                return Ok(());
+                return Ok(PollOutcome::stored(n));
             }
             Ok(FetchOutcome::NotModified) => {
                 store::record_not_modified(&self.pool, feed.id, feed.interval).await?;
-                return Ok(());
+                return Ok(PollOutcome::unchanged());
             }
             Err(e) => {
                 // Reddit JSON blocked/rate-limited → fall back to .rss (metrics NULL). Logged,
@@ -297,17 +327,19 @@ impl Scheduler {
                     new_items = n,
                     "polled reddit (.rss fallback)"
                 );
+                Ok(PollOutcome::stored(n))
             }
             Ok(FetchOutcome::NotModified) => {
-                store::record_not_modified(&self.pool, feed.id, feed.interval).await?
+                store::record_not_modified(&self.pool, feed.id, feed.interval).await?;
+                Ok(PollOutcome::unchanged())
             }
             Err(e) => {
                 log_failure(feed.id, &e);
                 let transition = store::record_failure(&self.pool, feed.id, &e).await?;
                 self.on_failure_transition(feed.id, transition).await;
+                Ok(PollOutcome::failed())
             }
         }
-        Ok(())
     }
 
     /// A fresh Reddit access token, if this instance has OAuth credentials configured *and* some

@@ -1,5 +1,14 @@
-import { Pencil, Plus, Sparkles, Trash2, Wifi, Zap } from "lucide-react";
+import {
+    Pencil,
+    Plus,
+    Sparkles,
+    Trash2,
+    TriangleAlert,
+    Wifi,
+    Zap,
+} from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -9,6 +18,7 @@ import {
     NumField,
     SETTINGS_TILE_CLASS,
 } from "@/components/settings/SettingsTile";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -33,7 +43,6 @@ import {
 import { useAutosave } from "@/hooks/useAutosave";
 import type { AiProvider } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 /** Admin AI tab (prompt.md §9.7): provider manager (active radio · test · delete · key hidden) +
  *  global generation params. Admin-only; the server also enforces the role (§11). */
@@ -109,10 +118,7 @@ function VideoProviderPicker() {
                         : "Video summaries now go to Gemini",
                 ),
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         });
     };
 
@@ -126,13 +132,18 @@ function VideoProviderPicker() {
                 </h3>
             </div>
             <p className="text-[13px] text-muted-foreground">
-                Summarize videos by sending Gemini the video URL directly - no
-                transcript fetch, works even without captions. Only Gemini
-                supports this; anything else keeps using transcripts. Falls back
-                to the transcript flow automatically if the call fails. Note:
-                Gemini bills video as ~100 tokens per second of runtime, so the
-                token budgets below fill much faster per video.
+                Summarize videos by sending Gemini the video URL directly, with
+                no transcript fetch - so videos without captions still get
+                summarized. Falls back to the transcript flow if the call fails.
             </p>
+            {current !== null && (
+                <Alert variant="warning" className="text-[13px]">
+                    <TriangleAlert className="size-4" />
+                    Video is billed by runtime - roughly 100 tokens per second,
+                    so a 10-minute video costs about 60,000 tokens. The budgets
+                    below fill far faster than they do for articles.
+                </Alert>
+            )}
             {providers.isError || settings.isError ? (
                 <ErrorBanner error={providers.error ?? settings.error} />
             ) : geminiProviders.length === 0 ? (
@@ -182,9 +193,8 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
             {
                 onSuccess: () => toast("Model updated"),
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not save",
-                        "error",
                     ),
             },
         );
@@ -193,23 +203,19 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
     const runTest = () =>
         test.mutate(provider.id, {
             onSuccess: (r) =>
-                toast(
-                    r.ok
-                        ? "Connection OK"
-                        : `Test failed: ${r.error ?? "unknown error"}`,
-                    r.ok ? "success" : "error",
-                ),
+                r.ok
+                    ? toast.success("Connection OK")
+                    : toast.error(`Test failed: ${r.error ?? "unknown error"}`),
             onError: (e) =>
-                toast(e instanceof Error ? e.message : "Test failed", "error"),
+                toast.error(e instanceof Error ? e.message : "Test failed"),
         });
 
     const del = () => {
         remove.mutate(provider.id, {
             onSuccess: () => toast("Provider deleted"),
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not delete",
-                    "error",
                 ),
         });
     };
@@ -293,7 +299,7 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                 open={editModel}
                 onOpenChange={setEditModel}
                 title="Change model"
-                label="Model id"
+                label="Model"
                 initialValue={provider.model}
                 placeholder="e.g. gemini-3.5-flash"
                 onSubmit={saveModel}
@@ -346,10 +352,7 @@ function GlobalParams() {
     useAutosave(form, (f) =>
         update.mutate(f, {
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         }),
     );
 

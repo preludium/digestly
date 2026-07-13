@@ -1,6 +1,7 @@
 import { Link2, Play, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
     SETTINGS_TILE_CLASS,
@@ -25,7 +26,6 @@ import {
 } from "@/hooks/useOauth";
 import { formatDateTime, relativeTime } from "@/lib/format";
 import type { OAuthConnection, OAuthProvider } from "@/lib/types";
-import { toast } from "@/stores/toast";
 
 const LABELS: Record<OAuthProvider, string> = {
     youtube: "YouTube",
@@ -54,11 +54,10 @@ export function ConnectedAccounts() {
         const connected = params.get("connected");
         const error = params.get("oauth_error");
         if (connected)
-            toast(
+            toast.success(
                 `${LABELS[connected as OAuthProvider] ?? connected} connected`,
-                "success",
             );
-        if (error) toast(OAUTH_ERRORS[error] ?? "Connection failed", "error");
+        if (error) toast.error(OAUTH_ERRORS[error] ?? "Connection failed");
         if (connected || error) {
             params.delete("connected");
             params.delete("oauth_error");
@@ -84,8 +83,8 @@ export function ConnectedAccounts() {
                 can run it again anytime.
             </p>
             <p className="text-[13px] text-muted-foreground">
-                A linked Reddit account is also used to fetch subreddit posts for
-                this instance - Reddit throttles anonymous requests hard, so
+                A linked Reddit account is also used to fetch subreddit posts
+                for this instance - Reddit throttles anonymous requests hard, so
                 scores and comment counts go missing without it. Only public
                 subreddit listings are ever requested; nothing is read from or
                 posted to your account.
@@ -114,15 +113,11 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
             { provider: conn.provider, categoryId },
             {
                 onSuccess: (r) =>
-                    toast(
+                    toast.success(
                         `Added ${r.added}, skipped ${r.skipped} already-added`,
-                        "success",
                     ),
                 onError: (e) =>
-                    toast(
-                        e instanceof Error ? e.message : "Sync failed",
-                        "error",
-                    ),
+                    toast.error(e instanceof Error ? e.message : "Sync failed"),
             },
         );
 
@@ -184,9 +179,8 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
                         onClick={() =>
                             disconnect.mutate(conn.provider, {
                                 onSuccess: () =>
-                                    toast(
+                                    toast.success(
                                         `${LABELS[conn.provider]} disconnected`,
-                                        "success",
                                     ),
                             })
                         }

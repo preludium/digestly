@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
@@ -17,7 +18,6 @@ import {
 } from "@/hooks/useSettings";
 import type { IngestionSettings as Ingestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 /** Ingestion + retention tab (admin-only, prompt.md §8). Concurrency/politeness/interval, retention
  *  policy (starred kept forever), and the SSRF allow-private toggle. Autosaves (debounced) on
@@ -36,10 +36,7 @@ export function IngestionSettings() {
     useAutosave(form, (f) =>
         update.mutate(f, {
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Could not save",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Could not save"),
         }),
     );
 
@@ -57,15 +54,11 @@ export function IngestionSettings() {
     const purgeNow = () => {
         purge.mutate(undefined, {
             onSuccess: (r) =>
-                toast(
+                toast.success(
                     `Deleted ${r.removed} item${r.removed === 1 ? "" : "s"}`,
-                    "success",
                 ),
             onError: (e) =>
-                toast(
-                    e instanceof Error ? e.message : "Delete failed",
-                    "error",
-                ),
+                toast.error(e instanceof Error ? e.message : "Delete failed"),
         });
     };
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +20,6 @@ import {
 } from "@/components/ui/select";
 import { useAiPresets, useCreateProvider } from "@/hooks/useAi";
 import type { AiPreset, ApiStyle, NewAiProvider } from "@/lib/types";
-import { toast } from "@/stores/toast";
 
 const CUSTOM = "__custom__";
 
@@ -97,7 +97,7 @@ function ProviderForm({
 
     const submit = () => {
         if (!name.trim() || !baseUrl.trim() || !model.trim()) {
-            toast("Name, base URL and model are required", "error");
+            toast.error("Name, base URL and model are required");
             return;
         }
         const body: NewAiProvider = {
@@ -112,13 +112,12 @@ function ProviderForm({
         };
         create.mutate(body, {
             onSuccess: () => {
-                toast("Provider added", "success");
+                toast.success("Provider added");
                 onDone();
             },
             onError: (e) =>
-                toast(
+                toast.error(
                     e instanceof Error ? e.message : "Could not add provider",
-                    "error",
                 ),
         });
     };

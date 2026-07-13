@@ -280,23 +280,52 @@ async fn refresh_feed(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// `POST /api/feeds/refresh-all` - re-poll every feed the user is subscribed to, in one DB write
-/// and one scheduler wakeup (§9.0 top-bar "Refresh all"). Scoped to the caller's own subscriptions
-/// only - `feeds` is shared across users.
+/// `POST /api/feeds/refresh-all` - "Ingest now": re-poll every feed the user is subscribed to, in
+/// one DB write and one scheduler wakeup (§9.0). Scoped to the caller's own subscriptions only -
+/// `feeds` is shared across users.
+///
+/// The poll itself happens later, in the background scheduler, so this returns before a single
+/// feed has been fetched. The returned `run_id` is what the client watches on the SSE stream to
+/// learn when its ingestion actually finished (see `crate::events`).
 async fn refresh_all(
     user: CurrentUser,
     State(state): State<AppState>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let n = sqlx::query(
+    // Only feeds the scheduler will actually poll (`select_due` skips disabled subscriptions) -
+    // a feed in the run that never gets polled would strand the run until its TTL.
+    let feed_ids: Vec<i64> =
+        sqlx::query_scalar("SELECT feed_id FROM subscriptions WHERE user_id = ? AND disabled = 0")
+            .bind(user.id)
+            .fetch_all(&state.pool)
+            .await?;
+
+    if feed_ids.is_empty() {
+        return Ok(Json(
+            serde_json::json!({ "ok": true, "run_id": null, "feeds": 0 }),
+        ));
+    }
+
+    // Open the run before waking the scheduler: a feed that finished polling before its run
+    // existed would never be counted, and the run would hang until the sweeper.
+    let run_id = state
+        .events
+        .open_run(user.id, feed_ids.clone())
+        .map_err(|secs| {
+            AppError::TooManyRequests(format!("ingest is on cooldown - try again in {secs}s"))
+        })?;
+
+    sqlx::query(
         "UPDATE feeds SET disabled = 0, failure_count = 0, last_error = NULL, next_fetch_at = datetime('now')
-         WHERE id IN (SELECT feed_id FROM subscriptions WHERE user_id = ?)",
+         WHERE id IN (SELECT feed_id FROM subscriptions WHERE user_id = ? AND disabled = 0)",
     )
     .bind(user.id)
     .execute(&state.pool)
-    .await?
-    .rows_affected();
+    .await?;
     state.ingest_trigger.notify_one();
-    Ok(Json(serde_json::json!({ "ok": true, "feeds": n })))
+
+    Ok(Json(
+        serde_json::json!({ "ok": true, "run_id": run_id, "feeds": feed_ids.len() }),
+    ))
 }
 
 // ---------------------------------------------------------------------------

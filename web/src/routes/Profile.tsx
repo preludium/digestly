@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { FieldError } from "@/components/common/AuthCard";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
@@ -18,7 +19,6 @@ import {
     useMe,
 } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 
 const ADMIN = "admin";
 
@@ -53,7 +53,7 @@ export function Profile() {
             { current_password: current, new_password: next },
             {
                 onSuccess: () => {
-                    toast("Password changed", "success");
+                    toast.success("Password changed");
                     setCurrent("");
                     setNext("");
                     setConfirm("");

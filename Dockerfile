@@ -3,16 +3,18 @@
 # ---- Stage 1: build the frontend to static assets ----
 FROM node:20-bookworm-slim AS web
 WORKDIR /web
-COPY web/package.json web/package-lock.json* ./
-RUN npm install
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN npm run build   # -> /web/dist
+RUN pnpm run build   # -> /web/dist
 
 # ---- Stage 2: build the Rust backend ----
 FROM rust:1.88-slim-bookworm AS server
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      pkg-config build-essential ca-certificates \
+      pkg-config build-essential ca-certificates libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 # Cache dependency compilation separately from source.
 COPY Cargo.toml Cargo.lock* ./
@@ -28,7 +30,7 @@ RUN strip target/release/digestly || true
 # ---- Stage 3: slim runtime ----
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates \
+      ca-certificates libssl3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server /app/target/release/digestly /usr/local/bin/digestly

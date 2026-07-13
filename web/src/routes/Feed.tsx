@@ -1,17 +1,17 @@
-import { RefreshCw, Rss, Search as SearchIcon } from "lucide-react";
+import { Rss, Search as SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { EmptyState } from "@/components/common/EmptyState";
+import { IngestButton } from "@/components/feeds/IngestButton";
 import { FilterBar } from "@/components/items/FilterBar";
 import { ItemGrid } from "@/components/items/ItemGrid";
 import { ItemPreview } from "@/components/items/ItemPreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useFeedFilters } from "@/hooks/useFeedFilters";
-import { useFeeds, useRefreshAll } from "@/hooks/useFeeds";
+import { useFeeds } from "@/hooks/useFeeds";
+import { useIngestNow } from "@/hooks/useIngest";
 import { useItems, useToggleRead, useToggleStar } from "@/hooks/useItems";
 import type { Item } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { toast } from "@/stores/toast";
 import { useUiStore } from "@/stores/ui";
 
 /** The core feed screen - responsive card grid with unified search + filters. Search used to be
@@ -21,7 +21,7 @@ export function Feed() {
     const { filters, setFacet, setPage, clear } = useFeedFilters(true);
     const items = useItems(filters);
     const feeds = useFeeds();
-    const refreshAll = useRefreshAll();
+    const ingest = useIngestNow();
     const toggleRead = useToggleRead();
     const toggleStar = useToggleStar();
     const openAddFeed = useUiStore((s) => s.setAddFeedOpen);
@@ -60,9 +60,7 @@ export function Feed() {
                     break;
                 case "r":
                     e.preventDefault();
-                    refreshAll.mutate(undefined, {
-                        onSuccess: () => toast("Refreshing feeds…"),
-                    });
+                    ingest.mutate();
                     break;
                 case "/":
                     e.preventDefault();
@@ -95,7 +93,7 @@ export function Feed() {
         filters.page,
         preview,
         setPage,
-        refreshAll,
+        ingest,
         toggleRead,
         toggleStar,
     ]);
@@ -122,24 +120,7 @@ export function Feed() {
                 <h1 className="font-display text-2xl font-semibold tracking-tight">
                     Your feed
                 </h1>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Refresh all feeds"
-                    disabled={refreshAll.isPending}
-                    onClick={() =>
-                        refreshAll.mutate(undefined, {
-                            onSuccess: () => toast("Refreshing feeds…"),
-                        })
-                    }
-                >
-                    <RefreshCw
-                        className={cn(
-                            "size-5",
-                            refreshAll.isPending && "animate-spin",
-                        )}
-                    />
-                </Button>
+                <IngestButton />
             </div>
 
             <div className="relative">

@@ -34,6 +34,7 @@ async fn test_app() -> (axum::Router, sqlx::SqlitePool, tempfile::TempDir) {
         enc_key,
         http_client: crate::ingest::fetch::build_client(),
         ingest_trigger: std::sync::Arc::new(tokio::sync::Notify::new()),
+        events: crate::events::EventBus::new(),
         webauthn: crate::auth::passkey::build("localhost", "http://localhost:8080", &[]),
         passkey_ceremonies: crate::auth::passkey::CeremonyStore::new(),
         oauth: std::sync::Arc::new(crate::oauth::OAuthSettings {

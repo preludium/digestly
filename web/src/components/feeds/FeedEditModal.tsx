@@ -1,5 +1,6 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +34,6 @@ import {
 } from "@/lib/format";
 import type { ContentType, Feed } from "@/lib/types";
 import { sortCategoriesOtherLast } from "@/routes/manage.helpers";
-import { toast } from "@/stores/toast";
 
 /** Feed settings / edit (prompt.md §9.4). Controlled by the caller; `feed` null hides it. */
 export function FeedEditModal({
@@ -96,13 +96,12 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
             },
             {
                 onSuccess: () => {
-                    toast("Feed updated", "success");
+                    toast.success("Feed updated");
                     onClose();
                 },
                 onError: (e) =>
-                    toast(
+                    toast.error(
                         e instanceof Error ? e.message : "Could not save",
-                        "error",
                     ),
             },
         );
@@ -311,7 +310,7 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
                         onConfirm={() => {
                             unsubscribe.mutate(feed.id, {
                                 onSuccess: () => {
-                                    toast("Unsubscribed", "success");
+                                    toast.success("Unsubscribed");
                                     onClose();
                                 },
                             });

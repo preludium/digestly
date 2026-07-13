@@ -38,7 +38,7 @@ export function Digests() {
                     {digests.data.map((d) => (
                         <li key={d.id}>
                             <Link to={`/digests/${d.id}`}>
-                                <Card className="flex items-center gap-4 p-4 transition-colors hover:bg-muted">
+                                <Card className="flex items-center gap-4 p-4 transition-colors hover:bg-muted/50">
                                     <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-2.5">
                                             <p className="font-display text-[17px] font-semibold tracking-tight">

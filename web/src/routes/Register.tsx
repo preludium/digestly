@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { AuthCard, FieldError } from "@/components/common/AuthCard";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRegister, useRegistrationStatus } from "@/hooks/useAuth";
-import { toast } from "@/stores/toast";
 
 export function Register() {
     const navigate = useNavigate();
@@ -37,7 +37,7 @@ export function Register() {
             { username, password },
             {
                 onSuccess: () => {
-                    toast("Welcome to Digestly", "success");
+                    toast.success("Welcome to Digestly");
                     navigate("/", { replace: true });
                 },
             },

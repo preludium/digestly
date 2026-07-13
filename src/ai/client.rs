@@ -157,6 +157,10 @@ pub async fn gemini_video_complete(
         "generationConfig": {
             "maxOutputTokens": max_tokens,
             "temperature": temperature,
+            // Low resolution is what keeps video affordable: 66 tokens per sampled frame (1 fps)
+            // + 32/sec of audio ≈ 100 tokens per second of runtime. Gemini's default resolution
+            // is 258 tokens/frame - roughly 300/sec, tripling the spend against the same budget.
+            // The Settings copy quotes the ~100/sec figure, so it is only true while this stays.
             "mediaResolution": "MEDIA_RESOLUTION_LOW",
         },
     });
