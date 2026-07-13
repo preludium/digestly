@@ -19,34 +19,40 @@ There is exactly one deployable service on one port with one database file:
 
 `src/main.rs` wires it together at boot: load + validate config, create `DATA_DIR`, connect
 and migrate the DB, bootstrap the built-in admin, derive keys from `SECRET_KEY`, spawn the
-three background tasks (ingestion scheduler, digest scheduler, maintenance), and serve with
-graceful shutdown on SIGTERM.
+four background tasks (ingestion scheduler, transcript worker, digest scheduler, maintenance),
+and serve with graceful shutdown on SIGTERM.
+
+The transcript worker (`src/ai/transcript_worker.rs`) fetches YouTube captions for newly-ingested
+video items out of band, so a slow caption fetch never holds up feed polling. The ingestion
+scheduler wakes it (a `tokio::sync::Notify`) whenever a YouTube feed poll stores new items;
+otherwise it ticks on its own. It is also where live recordings are dropped from the library -
+`isLiveContent` is only visible in YouTube's player data, which this worker already fetches.
 
 ## Module layout (`src/`)
 
-| Module            | Responsibility                                                                      |
-| ----------------- | ----------------------------------------------------------------------------------- |
-| `config.rs`       | Bootstrap env parsing + fail-fast validation (`SECRET_KEY`, `ADMIN_PASSWORD`, …).   |
-| `db.rs`           | SQLite pool (WAL, `busy_timeout`, `foreign_keys`), migrations, health ping.         |
-| `http.rs`         | Router, `AppState`, CORS (Tauri origins), compression, static SPA serving, `/api/health`. |
-| `error.rs`        | `AppError` / `ApiResult` — JSON error responses.                                    |
-| `healthcheck.rs`  | `--healthcheck` subcommand (dependency-free TCP probe for the Docker HEALTHCHECK).  |
-| `auth/`           | argon2 passwords, passkeys/WebAuthn (`passkey.rs`), admin bootstrap, signed-cookie sessions, `CurrentUser`/`AdminUser` extractors. |
-| `oauth/`          | OAuth import helpers (YouTube/Reddit, S4): authorize/token/refresh, subscription listing, and the idempotent `reconcile` that adds only new feeds. |
-| `ingest/`         | Discovery, scheduler, fetch, parse, store, content handling, Reddit/YouTube specifics. |
-| `ai/`             | `LlmClient` trait + two clients, provider management, key crypto, summarize, transcript, budget. |
-| `notify.rs` / `notify/` | Per-user ntfy config + sending (digest push, throttled feed-health push).     |
-| `digest/`         | Digest engine (`mod.rs`) + restricted cron parser (`cron.rs`).                      |
-| `maintenance.rs`  | Periodic retention purge (starred kept forever).                                    |
-| `opml.rs`         | OPML import/export round-trip (`roxmltree` for parsing).                             |
-| `routes/`         | REST handlers per resource (auth, me, admin, categories, feeds, items, ai, notifications, digest, settings, opml). |
-| `query.rs`        | Timezone-aware `when` ranges (DST-correct) and sort/filter SQL used by the items API.|
-| `seed.rs`         | Seeds the six default categories per account.                                       |
-| `seed_demo.rs`    | `--seed` test-mode command: ingest fixtures offline + print a sample digest.        |
+| Module                  | Responsibility                                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.rs`             | Bootstrap env parsing + fail-fast validation (`SECRET_KEY`, `ADMIN_PASSWORD`, …).                                                                  |
+| `db.rs`                 | SQLite pool (WAL, `busy_timeout`, `foreign_keys`), migrations, health ping.                                                                        |
+| `http.rs`               | Router, `AppState`, CORS (Tauri origins), compression, static SPA serving, `/api/health`.                                                          |
+| `error.rs`              | `AppError` / `ApiResult` - JSON error responses.                                                                                                   |
+| `healthcheck.rs`        | `--healthcheck` subcommand (dependency-free TCP probe for the Docker HEALTHCHECK).                                                                 |
+| `auth/`                 | argon2 passwords, passkeys/WebAuthn (`passkey.rs`), admin bootstrap, signed-cookie sessions, `CurrentUser`/`AdminUser` extractors.                 |
+| `oauth/`                | OAuth import helpers (YouTube/Reddit, S4): authorize/token/refresh, subscription listing, and the idempotent `reconcile` that adds only new feeds. |
+| `ingest/`               | Discovery, scheduler, fetch, parse, store, content handling, Reddit/YouTube specifics.                                                             |
+| `ai/`                   | `LlmClient` trait + two clients, provider management, key crypto, summarize, budget, YouTube captions (`transcript.rs`) + the background worker that fetches them (`transcript_worker.rs`). |
+| `notify.rs` / `notify/` | Per-user ntfy config + sending (digest push, throttled feed-health push).                                                                          |
+| `digest/`               | Digest engine (`mod.rs`) + restricted cron parser (`cron.rs`).                                                                                     |
+| `maintenance.rs`        | Periodic retention purge (starred kept forever).                                                                                                   |
+| `opml.rs`               | OPML import/export round-trip (`roxmltree` for parsing).                                                                                           |
+| `routes/`               | REST handlers per resource (auth, me, admin, categories, feeds, items, ai, notifications, digest, settings, opml).                                 |
+| `query.rs`              | Timezone-aware `when` ranges (DST-correct) and sort/filter SQL used by the items API.                                                              |
+| `seed.rs`               | Seeds the six default categories per account.                                                                                                      |
+| `seed_demo.rs`          | `--seed` test-mode command: ingest fixtures offline + print a sample digest.                                                                       |
 
 ## Ingestion flow
 
-Ingestion is global and shared — feeds are polled once for all users. A `tokio` background
+Ingestion is global and shared - feeds are polled once for all users. A `tokio` background
 scheduler (`src/ingest/scheduler.rs`) runs the loop:
 
 1. **Select due feeds.** `next_fetch_at <= now`, not `disabled`, and having **≥1 active
@@ -66,14 +72,14 @@ scheduler (`src/ingest/scheduler.rs`) runs the loop:
    a terminal status like `401/403/410`) the feed is disabled and surfaced in `/health`.
 
 **Per-feed isolation:** each feed fetch is a `Result` handled independently with
-`tracing::warn` — one bad feed never crashes the loop.
+`tracing::warn` - one bad feed never crashes the loop.
 
 **Source specifics** (`src/ingest/`):
 
 - **Reddit:** the `.rss` feed lacks `score`/`comments`, so Digestly uses the JSON endpoint
   (`.../top.json`) for `score`, `num_comments`, `upvote_ratio` with a descriptive
   `User-Agent` and `429`/`Retry-After` handling. If JSON is blocked/unavailable it falls back
-  to `.rss` with those metrics `NULL` (and logs the bypass — never silent). `min_score` is
+  to `.rss` with those metrics `NULL` (and logs the bypass - never silent). `min_score` is
   applied at **query time** since items are shared.
 - **YouTube:** polled via **per-channel RSS** (no OAuth, no quota); handles/`@handle`/channel
   URLs are resolved to a `channel_id`. Transcripts are fetched lazily/async so a slow
@@ -83,16 +89,16 @@ scheduler (`src/ingest/scheduler.rs`) runs the loop:
 
 The schema splits cleanly into **global** (shared, no `user_id`) and **per-user** tables:
 
-| Global (shared)                                                        | Per-user (`user_id`, cascade-deleted) |
-| ---------------------------------------------------------------------- | ------------------------------------- |
+| Global (shared)                                                                 | Per-user (`user_id`, cascade-deleted)                                                     |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `feeds`, `items`, `items_fts`, `item_summaries`, `ai_providers`, `app_settings` | `categories`, `subscriptions`, `item_states`, `settings`, `user_notifications`, `digests` |
 
 A "feed" in the UI is a `subscriptions` row (a user's link to a global `feeds` catalog entry
-with *their* category and settings). The fetched **content** (feeds + items) is shared; all
+with _their_ category and settings). The fetched **content** (feeds + items) is shared; all
 **state** (read/star, categories, min-score, notifications, digests) is per-user.
 
 **Scoping is enforced server-side.** Every non-admin query derives `user_id` from the session
-(the `CurrentUser` extractor) — it is **never** a client-supplied parameter. No endpoint reads
+(the `CurrentUser` extractor) - it is **never** a client-supplied parameter. No endpoint reads
 or mutates another user's rows, except the admin user-management endpoints (which manage
 accounts only, never feed contents). `AdminUser` rejects non-admins with `403` at the server.
 
@@ -100,43 +106,43 @@ accounts only, never feed contents). `AdminUser` rejects non-admins with `403` a
 
 **Accounts & auth (global):**
 
-- `users(id, username UNIQUE, password_hash, role, disabled, created_at, last_login_at)` —
+- `users(id, username UNIQUE, password_hash, role, disabled, created_at, last_login_at)` -
   `role ∈ {admin, user}`.
-- `passkeys(...)` — WebAuthn credentials (one per authenticator; `public_key` holds the
+- `passkeys(...)` - WebAuthn credentials (one per authenticator; `public_key` holds the
   serialized `webauthn-rs` credential, `sign_count` mirrors the counter for the clone check).
-- `sessions(id, user_id, created_at, expires_at)` — revocable server-side sessions.
+- `sessions(id, user_id, created_at, expires_at)` - revocable server-side sessions.
 
 **Global content:**
 
-- `feeds(...)` — canonical catalog deduped by normalized `feed_url`; `kind ∈ {rss, atom,
-  jsonfeed, youtube, reddit}`; carries `etag`, `last_modified`, `next_fetch_at`,
+- `feeds(...)` - canonical catalog deduped by normalized `feed_url`; `kind ∈ {rss, atom,
+jsonfeed, youtube, reddit}`; carries `etag`, `last_modified`, `next_fetch_at`,
   `fetch_interval_secs`, `failure_count`, `last_error`, `disabled`.
-- `items(...)` — per feed; content_html (sanitized) + content_text, transcript + status,
+- `items(...)` - per feed; content_html (sanitized) + content_text, transcript + status,
   image/duration/reading-time, published/fetched, Reddit `score`/`comments_count`/
   `upvote_ratio` (nullable), `dedup_hash`.
-- `items_fts` — FTS5 over `title, content_text, author`, synced by insert/update/delete
+- `items_fts` - FTS5 over `title, content_text, author`, synced by insert/update/delete
   triggers.
 - `item_summaries(id, item_id, model, api_style, summary_text, created_at, UNIQUE(item_id,
-  model))` — the shared AI summary cache; contains no user-identifying data.
-- `ai_providers(...)` — admin-managed LLM endpoints; `api_key_enc` encrypted, never returned;
+model))` - the shared AI summary cache; contains no user-identifying data.
+- `ai_providers(...)` - admin-managed LLM endpoints; `api_key_enc` encrypted, never returned;
   exactly one `is_active`.
-- `app_settings(key, value)` — global admin config (registration toggle, ingestion tunables,
+- `app_settings(key, value)` - global admin config (registration toggle, ingestion tunables,
   digest engine config, AI params, retention).
 
 **Per-user state:**
 
-- `categories(id, user_id, name, position, ..., UNIQUE(user_id, name))` — the single grouping
+- `categories(id, user_id, name, position, ..., UNIQUE(user_id, name))` - the single grouping
   concept; `Other` is the non-deletable catch-all.
 - `subscriptions(id, user_id, feed_id, category_id NOT NULL, content_type, min_score,
-  full_text_extract, disabled, title_override, ..., UNIQUE(user_id, feed_id))`.
-- `item_states(user_id, item_id, is_read, is_starred, read_at, PK(user_id, item_id))` —
+full_text_extract, disabled, title_override, ..., UNIQUE(user_id, feed_id))`.
+- `item_states(user_id, item_id, is_read, is_starred, read_at, PK(user_id, item_id))` -
   absence = unread & unstarred; upserted on first interaction.
-- `settings(user_id, key, value, PK(user_id, key))` — per-user preferences only.
+- `settings(user_id, key, value, PK(user_id, key))` - per-user preferences only.
 - `user_notifications(user_id PK, ntfy_server_url, ntfy_topic, ntfy_auth_token_enc,
-  ntfy_priority, notify_on_digest, notify_on_feed_health, ...)` — encrypted token, never
+ntfy_priority, notify_on_digest, notify_on_feed_health, ...)` - encrypted token, never
   returned.
 - `digests(id, user_id, created_at, period_start, period_end, item_count, payload_json,
-  notified, error)` — per-user digest history.
+notified, error)` - per-user digest history.
 
 Indexes cover the hot paths: `items(feed_id, published_at)`, `items(dedup_hash)`,
 `items(published_at)`, `items(score)`, `items(comments_count)`, `feeds(next_fetch_at)`, the
@@ -159,7 +165,7 @@ subscription/category/state/summary lookups.
   (`GOOGLE_OAUTH_*` / `REDDIT_OAUTH_*`); a provider's feature is hidden unless both are set. The
   authorization-code flow stores only an **encrypted refresh token** per user (`user_oauth` table,
   migration `0002`), never returned or logged; the CSRF `state` binds the callback to the
-  initiating user (in-process store). "Sync now" is repeatable and idempotent — it refreshes an
+  initiating user (in-process store). "Sync now" is repeatable and idempotent - it refreshes an
   access token, lists subscriptions, maps each to the same feed URL the poller uses, and calls
   `reconcile`, which reuses `feeds::subscribe_url` to add only feeds the user doesn't already have.
   Polling itself is always plain RSS/JSON; the token is used only at sync time. The mapping +
@@ -194,18 +200,29 @@ AI is provider-agnostic and admin-global (`src/ai/`):
   and reused across users, so the same item is never re-summarized (unless the model differs
   or the user forces a refresh).
 - **SSRF guard** on custom base URLs rejects private/loopback ranges unless allow-private is
-  enabled — but intentionally **allows localhost for Ollama** (`provider_type == ollama`).
+  enabled - but intentionally **allows localhost for Ollama** (`provider_type == ollama`).
 - **Token budget guard** (`src/ai/budget.rs`): daily/monthly token budgets checked before a
   call and recorded after; huge source lists are truncated.
 
 ## Video → readable
 
 Video items are rendered as text, not a player (`src/ai/transcript.rs`, `summarize.rs`). The
-transcript is fetched lazily; the active provider produces a structured readable summary
-(intro + key-point bullets + takeaways), cached in `item_summaries`. When
+transcript is fetched by the background transcript worker shortly after ingest (and lazily, on
+first summarize, if the worker hasn't got to it); the active provider produces a structured
+readable summary (intro + key-point bullets + takeaways), cached in `item_summaries`. When
 `transcript_status = unavailable`, the description is summarized and labelled as such, and the
 watch link is surfaced more prominently. The reader renders: AI summary (primary) →
 collapsible full transcript → de-emphasized "Watch on YouTube".
+
+**Video-URL path (optional).** An admin can point `ai.video_provider_id` at a **Gemini** provider
+(Settings → AI → YouTube video summaries). Gemini is then sent the video URL itself, so videos
+with no captions at all still get a real summary; any failure falls back to the transcript flow.
+Gemini-only - it's the only supported API that accepts a video URL as model input - and it bills
+video at roughly 100 tokens per second of runtime, so the token budgets drain much faster.
+
+**Just regular videos.** Shorts are filtered at ingest (the channel feed marks them with a
+`/shorts/` link). Live recordings can only be identified from YouTube's player data, so they are
+ingested normally and then deleted by the transcript worker once it confirms `isLiveContent`.
 
 ## Digest engine
 
@@ -243,7 +260,7 @@ notifies each at most once per transition.
 
 `src/maintenance.rs` runs a periodic purge (every 6h) driven by `retention.max_age_days` and
 `retention.max_per_feed` in `app_settings` (both `0` = keep forever). **Starred items are
-never purged** — an item starred by *any* user survives. Deletes cascade to
+never purged** - an item starred by _any_ user survives. Deletes cascade to
 `item_states`/`item_summaries` and keep FTS in sync via the delete trigger.
 
 ## Frontend
@@ -263,7 +280,7 @@ One React app (`web/`) powers the browser, the installed PWA (and, in future, Ta
   already-fetched items.
 - **Offline write-sync (S3):** read/star mutations made offline are applied optimistically to the
   query cache and appended to a persistent **outbox** (`web/src/lib/outbox.ts`, localStorage-backed;
-  wired to the network + React in `web/src/lib/sync.ts`). Each entry carries an *explicit* value;
+  wired to the network + React in `web/src/lib/sync.ts`). Each entry carries an _explicit_ value;
   before replay the outbox coalesces per `(kind,item)` to the latest intent, so replay is idempotent
   and last-write-wins. Flushing is driven on the `online` event, on app start, and by the service
   worker's Background Sync (`sync` tag `hf-outbox` → `postMessage` to clients) where supported. The
@@ -286,9 +303,9 @@ One React app (`web/`) powers the browser, the installed PWA (and, in future, Ta
   mobile; native-only capabilities would live in a thin Tauri shell, not a second codebase.
 - **Categories, not folders.** A single mandatory grouping concept doubles as the digest
   bucket, which keeps the model simple and the digest grouping obvious.
-- **Shared ingest, not per-user duplication.** Polling a popular feed once — regardless of how
-  many users subscribe — saves bandwidth, avoids rate-limit trouble, and keeps a single shared
-  summary cache; only *state* is duplicated per user.
+- **Shared ingest, not per-user duplication.** Polling a popular feed once - regardless of how
+  many users subscribe - saves bandwidth, avoids rate-limit trouble, and keeps a single shared
+  summary cache; only _state_ is duplicated per user.
 - **Runtime-checked sqlx, not the compile-time macros.** Queries use `sqlx::query`/`query_as`
   (not `query!`/`query_as!`). This is a deliberate build choice: there is no live database at
   build time, so the multi-stage Docker build compiles without a `DATABASE_URL` or a checked

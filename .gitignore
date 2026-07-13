@@ -37,3 +37,5 @@ npm-debug.log*
 
 # Build artifacts
 /dist/
+
+.lavish

@@ -8,7 +8,7 @@
 
 ## Technical
 
-8. almost every web dependency is old - i want everything to be updated to the latest versions **(not yet done — dependency updates remain)**
+8. almost every web dependency is old - i want everything to be updated to the latest versions **(not yet done - dependency updates remain)**
 
 ## General
 
