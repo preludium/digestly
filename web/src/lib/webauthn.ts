@@ -4,24 +4,28 @@
 // straight back to the verify endpoint.
 
 import {
-  create,
-  get,
-  supported,
-  type CredentialCreationOptionsJSON,
-  type CredentialRequestOptionsJSON,
+    type CredentialCreationOptionsJSON,
+    type CredentialRequestOptionsJSON,
+    create,
+    get,
+    supported,
 } from "@github/webauthn-json";
 
 /** Whether this browser supports the WebAuthn APIs at all. */
 export const passkeysSupported = () => supported();
 
 /** Run a registration ceremony from server-issued creation options. */
-export async function runRegistration(options: CredentialCreationOptionsJSON["publicKey"]) {
-  return create({ publicKey: options });
+export async function runRegistration(
+    options: CredentialCreationOptionsJSON["publicKey"],
+) {
+    return create({ publicKey: options });
 }
 
 /** Run an authentication ceremony from server-issued request options. */
-export async function runAuthentication(options: CredentialRequestOptionsJSON["publicKey"]) {
-  return get({ publicKey: options });
+export async function runAuthentication(
+    options: CredentialRequestOptionsJSON["publicKey"],
+) {
+    return get({ publicKey: options });
 }
 
 /**
@@ -30,24 +34,28 @@ export async function runAuthentication(options: CredentialRequestOptionsJSON["p
  * The optional `signal` lets a background request be aborted if the user takes another action.
  */
 export async function runConditionalAuthentication(
-  options: CredentialRequestOptionsJSON["publicKey"],
-  signal?: AbortSignal,
+    options: CredentialRequestOptionsJSON["publicKey"],
+    signal?: AbortSignal,
 ) {
-  return get({ mediation: "conditional", publicKey: options, signal });
+    return get({ mediation: "conditional", publicKey: options, signal });
 }
 
 /** Whether the browser supports Conditional UI (autofill-driven passkey sign-in). */
 export async function conditionalMediationAvailable(): Promise<boolean> {
-  const pkc = typeof window !== "undefined" ? window.PublicKeyCredential : undefined;
-  if (!pkc?.isConditionalMediationAvailable) return false;
-  try {
-    return await pkc.isConditionalMediationAvailable();
-  } catch {
-    return false;
-  }
+    const pkc =
+        typeof window !== "undefined" ? window.PublicKeyCredential : undefined;
+    if (!pkc?.isConditionalMediationAvailable) return false;
+    try {
+        return await pkc.isConditionalMediationAvailable();
+    } catch {
+        return false;
+    }
 }
 
 /** A user-cancelled or timed-out ceremony surfaces as one of these DOMException names. */
 export function isCancellation(e: unknown): boolean {
-  return e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError");
+    return (
+        e instanceof DOMException &&
+        (e.name === "NotAllowedError" || e.name === "AbortError")
+    );
 }

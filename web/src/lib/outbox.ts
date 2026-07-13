@@ -1,9 +1,9 @@
-// Offline write-sync outbox (prompt.md §9a — stretch S3). A small persistent queue of read/star
+// Offline write-sync outbox (prompt.md §9a - stretch S3). A small persistent queue of read/star
 // mutations made while offline (or when a write fails), replayed when connectivity returns.
 //
 // Design notes:
 // * Every queued mutation carries an EXPLICIT value (not a toggle), so replaying it is idempotent
-//   — applying `{read:true}` twice is the same as once.
+//   - applying `{read:true}` twice is the same as once.
 // * Before replay the queue is COALESCED per (kind,itemId) to the latest intent, so a burst of
 //   flips offline collapses to one write whose result matches what the user last chose
 //   (last-write-wins). This keeps replay conflict-safe against changes made elsewhere meanwhile.
@@ -13,46 +13,46 @@
 export type MutationKind = "read" | "star";
 
 export interface QueuedMutation {
-  kind: MutationKind;
-  itemId: number;
-  value: boolean;
-  queuedAt: number;
+    kind: MutationKind;
+    itemId: number;
+    value: boolean;
+    queuedAt: number;
 }
 
 /** Pluggable persistence (localStorage in the app; an in-memory map in tests). */
 export interface OutboxStore {
-  read(): QueuedMutation[];
-  write(list: QueuedMutation[]): void;
+    read(): QueuedMutation[];
+    write(list: QueuedMutation[]): void;
 }
 
 const STORAGE_KEY = "hf.outbox.v1";
 
 /** Default store backed by `localStorage`; degrades to a no-op if storage is unavailable. */
 export const localStorageStore: OutboxStore = {
-  read() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as QueuedMutation[]) : [];
-    } catch {
-      return [];
-    }
-  },
-  write(list) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    } catch {
-      /* storage full / disabled — nothing we can do */
-    }
-  },
+    read() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? (JSON.parse(raw) as QueuedMutation[]) : [];
+        } catch {
+            return [];
+        }
+    },
+    write(list) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        } catch {
+            /* storage full / disabled - nothing we can do */
+        }
+    },
 };
 
 const keyOf = (m: QueuedMutation) => `${m.kind}:${m.itemId}`;
 
 /** Collapse to the latest mutation per (kind,itemId), ordered by when it was queued. */
 export function coalesce(list: QueuedMutation[]): QueuedMutation[] {
-  const latest = new Map<string, QueuedMutation>();
-  for (const m of list) latest.set(keyOf(m), m); // a later entry overwrites an earlier one
-  return [...latest.values()].sort((a, b) => a.queuedAt - b.queuedAt);
+    const latest = new Map<string, QueuedMutation>();
+    for (const m of list) latest.set(keyOf(m), m); // a later entry overwrites an earlier one
+    return [...latest.values()].sort((a, b) => a.queuedAt - b.queuedAt);
 }
 
 /** Sends one mutation to the server; throws on failure. */
@@ -66,59 +66,64 @@ export type RetryPredicate = (error: unknown) => boolean;
  * can't wedge the queue. Returns the mutations that still need to be persisted.
  */
 export async function replay(
-  list: QueuedMutation[],
-  send: Sender,
-  isRetryable: RetryPredicate,
+    list: QueuedMutation[],
+    send: Sender,
+    isRetryable: RetryPredicate,
 ): Promise<QueuedMutation[]> {
-  const pending = coalesce(list);
-  const remaining: QueuedMutation[] = [];
-  let stopped = false;
+    const pending = coalesce(list);
+    const remaining: QueuedMutation[] = [];
+    let stopped = false;
 
-  for (const m of pending) {
-    if (stopped) {
-      remaining.push(m);
-      continue;
+    for (const m of pending) {
+        if (stopped) {
+            remaining.push(m);
+            continue;
+        }
+        try {
+            await send(m);
+        } catch (error) {
+            if (isRetryable(error)) {
+                stopped = true;
+                remaining.push(m);
+            }
+            // terminal error → drop this mutation and keep going
+        }
     }
-    try {
-      await send(m);
-    } catch (error) {
-      if (isRetryable(error)) {
-        stopped = true;
-        remaining.push(m);
-      }
-      // terminal error → drop this mutation and keep going
-    }
-  }
-  return remaining;
+    return remaining;
 }
 
 /** Persistent outbox tying a store to the pure replay engine. */
 export class Outbox {
-  constructor(private store: OutboxStore = localStorageStore) {}
+    constructor(private store: OutboxStore = localStorageStore) {}
 
-  enqueue(kind: MutationKind, itemId: number, value: boolean, now: number = Date.now()): void {
-    const list = this.store.read();
-    list.push({ kind, itemId, value, queuedAt: now });
-    this.store.write(list);
-  }
+    enqueue(
+        kind: MutationKind,
+        itemId: number,
+        value: boolean,
+        now: number = Date.now(),
+    ): void {
+        const list = this.store.read();
+        list.push({ kind, itemId, value, queuedAt: now });
+        this.store.write(list);
+    }
 
-  /** Distinct pending mutations (coalesced). */
-  pending(): QueuedMutation[] {
-    return coalesce(this.store.read());
-  }
+    /** Distinct pending mutations (coalesced). */
+    pending(): QueuedMutation[] {
+        return coalesce(this.store.read());
+    }
 
-  count(): number {
-    return this.pending().length;
-  }
+    count(): number {
+        return this.pending().length;
+    }
 
-  /** Attempt to send everything; persist whatever couldn't be sent. Returns the remaining count. */
-  async flush(send: Sender, isRetryable: RetryPredicate): Promise<number> {
-    const remaining = await replay(this.store.read(), send, isRetryable);
-    this.store.write(remaining);
-    return remaining.length;
-  }
+    /** Attempt to send everything; persist whatever couldn't be sent. Returns the remaining count. */
+    async flush(send: Sender, isRetryable: RetryPredicate): Promise<number> {
+        const remaining = await replay(this.store.read(), send, isRetryable);
+        this.store.write(remaining);
+        return remaining.length;
+    }
 
-  clear(): void {
-    this.store.write([]);
-  }
+    clear(): void {
+        this.store.write([]);
+    }
 }

@@ -1,13 +1,13 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
-import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Toaster } from "./components/common/Toaster";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { registerServiceWorker } from "./lib/pwa";
 import { queryClient } from "./lib/queryClient";
 import { applyDensity, applyTheme, useUiStore } from "./stores/ui";
-import { registerServiceWorker } from "./lib/pwa";
 import "@fontsource-variable/fraunces";
 import "@fontsource-variable/instrument-sans";
 import "./index.css";

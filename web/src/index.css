@@ -4,199 +4,232 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-ring: hsl(var(--ring));
-  --color-star: hsl(var(--star));
-  --color-success: hsl(var(--success));
-  --color-success-foreground: hsl(var(--success-foreground));
-  --color-warning: hsl(var(--warning));
-  --color-warning-foreground: hsl(var(--warning-foreground));
-  --color-info: hsl(var(--info));
-  --color-info-foreground: hsl(var(--info-foreground));
-  --color-badge-1: hsl(var(--badge-1));
-  --color-badge-1-foreground: hsl(var(--badge-1-fg));
-  --color-badge-2: hsl(var(--badge-2));
-  --color-badge-2-foreground: hsl(var(--badge-2-fg));
-  --color-badge-3: hsl(var(--badge-3));
-  --color-badge-3-foreground: hsl(var(--badge-3-fg));
-  --color-badge-4: hsl(var(--badge-4));
-  --color-badge-4-foreground: hsl(var(--badge-4-fg));
-  --color-badge-5: hsl(var(--badge-5));
-  --color-badge-5-foreground: hsl(var(--badge-5-fg));
-  --color-badge-6: hsl(var(--badge-6));
-  --color-badge-6-foreground: hsl(var(--badge-6-fg));
-  --color-badge-7: hsl(var(--badge-7));
-  --color-badge-7-foreground: hsl(var(--badge-7-fg));
-  --color-badge-8: hsl(var(--badge-8));
-  --color-badge-8-foreground: hsl(var(--badge-8-fg));
-  --shadow-xs: 0 1px 2px hsl(24 30% 20% / 0.05);
-  --shadow-sm: 0 1px 3px hsl(24 30% 20% / 0.07), 0 1px 2px hsl(24 30% 20% / 0.05);
-  --shadow: 0 1px 3px hsl(24 30% 20% / 0.07), 0 1px 2px hsl(24 30% 20% / 0.05);
-  --shadow-md: 0 4px 10px -2px hsl(24 30% 20% / 0.1), 0 2px 4px -2px hsl(24 30% 20% / 0.06);
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-  --breakpoint-wide: 820px;
-  /* Preserve the v3 tailwind.config.js `fontFamily.sans` stack so body text renders
+    --color-background: hsl(var(--background));
+    --color-foreground: hsl(var(--foreground));
+    --color-card: hsl(var(--card));
+    --color-card-foreground: hsl(var(--card-foreground));
+    --color-popover: hsl(var(--popover));
+    --color-popover-foreground: hsl(var(--popover-foreground));
+    --color-muted: hsl(var(--muted));
+    --color-muted-foreground: hsl(var(--muted-foreground));
+    --color-border: hsl(var(--border));
+    --color-input: hsl(var(--input));
+    --color-primary: hsl(var(--primary));
+    --color-primary-foreground: hsl(var(--primary-foreground));
+    --color-secondary: hsl(var(--secondary));
+    --color-secondary-foreground: hsl(var(--secondary-foreground));
+    --color-accent: hsl(var(--accent));
+    --color-accent-foreground: hsl(var(--accent-foreground));
+    --color-destructive: hsl(var(--destructive));
+    --color-destructive-foreground: hsl(var(--destructive-foreground));
+    --color-ring: hsl(var(--ring));
+    --color-star: hsl(var(--star));
+    --color-success: hsl(var(--success));
+    --color-success-foreground: hsl(var(--success-foreground));
+    --color-warning: hsl(var(--warning));
+    --color-warning-foreground: hsl(var(--warning-foreground));
+    --color-info: hsl(var(--info));
+    --color-info-foreground: hsl(var(--info-foreground));
+    --color-badge-1: hsl(var(--badge-1));
+    --color-badge-1-foreground: hsl(var(--badge-1-fg));
+    --color-badge-2: hsl(var(--badge-2));
+    --color-badge-2-foreground: hsl(var(--badge-2-fg));
+    --color-badge-3: hsl(var(--badge-3));
+    --color-badge-3-foreground: hsl(var(--badge-3-fg));
+    --color-badge-4: hsl(var(--badge-4));
+    --color-badge-4-foreground: hsl(var(--badge-4-fg));
+    --color-badge-5: hsl(var(--badge-5));
+    --color-badge-5-foreground: hsl(var(--badge-5-fg));
+    --color-badge-6: hsl(var(--badge-6));
+    --color-badge-6-foreground: hsl(var(--badge-6-fg));
+    --color-badge-7: hsl(var(--badge-7));
+    --color-badge-7-foreground: hsl(var(--badge-7-fg));
+    --color-badge-8: hsl(var(--badge-8));
+    --color-badge-8-foreground: hsl(var(--badge-8-fg));
+    --shadow-xs: 0 1px 2px hsl(24 30% 20% / 0.05);
+    --shadow-sm:
+        0 1px 3px hsl(24 30% 20% / 0.07), 0 1px 2px hsl(24 30% 20% / 0.05);
+    --shadow:
+        0 1px 3px hsl(24 30% 20% / 0.07), 0 1px 2px hsl(24 30% 20% / 0.05);
+    --shadow-md:
+        0 4px 10px -2px hsl(24 30% 20% / 0.1),
+        0 2px 4px -2px hsl(24 30% 20% / 0.06);
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+    --breakpoint-wide: 820px;
+    /* Preserve the v3 tailwind.config.js `fontFamily.sans` stack so body text renders
      identically under v4's CSS-first setup (v4's default --font-sans differs). */
-  --font-sans: "Instrument Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+    --font-sans:
+        "Instrument Sans Variable", system-ui, -apple-system, "Segoe UI",
+        sans-serif;
+    --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+    /* Sidebar tokens (shadcn sidebar component) - alias the existing palette rather than
+     introducing a separate color scheme; the sidebar is just page chrome, not a distinct brand
+     region, so it should look identical to the rest of the app in both themes. */
+    --color-sidebar: hsl(var(--background));
+    --color-sidebar-foreground: hsl(var(--foreground));
+    --color-sidebar-primary: hsl(var(--primary));
+    --color-sidebar-primary-foreground: hsl(var(--primary-foreground));
+    --color-sidebar-accent: hsl(var(--muted));
+    --color-sidebar-accent-foreground: hsl(var(--foreground));
+    --color-sidebar-border: hsl(var(--border));
+    --color-sidebar-ring: hsl(var(--ring));
 }
 
 /* Design tokens (prompt.md §9.7). Defined ONCE here; components consume semantic tokens
    only (no raw hex / arbitrary values). Palette derived from mockup.html. */
 @layer base {
-  :root {
-    --background: 37 40% 96%;
-    --foreground: 24 12% 15%;
-    --card: 40 45% 98%;
-    --card-foreground: 24 12% 15%;
-    --popover: 40 45% 98%;
-    --popover-foreground: 24 12% 15%;
-    --muted: 36 26% 90%;
-    --muted-foreground: 27 9% 39%;
-    --border: 36 22% 85%;
-    --input: 36 22% 85%;
-    --primary: 17 62% 46%;
-    --primary-foreground: 40 45% 98%;
-    --secondary: 36 26% 90%;
-    --secondary-foreground: 24 12% 15%;
-    --accent: 130 16% 42%;
-    --accent-foreground: 40 45% 98%;
-    --destructive: 5 58% 45%;
-    --destructive-foreground: 40 45% 98%;
-    --success: 130 30% 34%;
-    --success-foreground: 40 45% 98%;
-    --warning: 38 80% 40%;
-    --warning-foreground: 40 45% 98%;
-    --info: 215 45% 45%;
-    --info-foreground: 40 45% 98%;
-    --ring: 17 62% 46%;
-    --star: 40 88% 45%;
-    --radius: 0.75rem;
-    /* pastel topic badges: clay, sage, butter, dusty-blue, lavender, rose, moss, sand */
-    --badge-1: 18 48% 88%;  --badge-1-fg: 18 55% 28%;
-    --badge-2: 130 26% 86%; --badge-2-fg: 130 30% 24%;
-    --badge-3: 46 65% 86%;  --badge-3-fg: 42 60% 26%;
-    --badge-4: 212 40% 88%; --badge-4-fg: 212 45% 28%;
-    --badge-5: 268 32% 90%; --badge-5-fg: 268 30% 32%;
-    --badge-6: 340 42% 90%; --badge-6-fg: 340 45% 30%;
-    --badge-7: 88 30% 86%;  --badge-7-fg: 88 35% 24%;
-    --badge-8: 32 38% 87%;  --badge-8-fg: 30 40% 27%;
-  }
+    :root {
+        --background: 37 40% 96%;
+        --foreground: 24 12% 15%;
+        --card: 40 45% 98%;
+        --card-foreground: 24 12% 15%;
+        --popover: 40 45% 98%;
+        --popover-foreground: 24 12% 15%;
+        --muted: 36 26% 90%;
+        --muted-foreground: 27 9% 39%;
+        --border: 36 22% 85%;
+        --input: 36 22% 85%;
+        --primary: 17 62% 46%;
+        --primary-foreground: 40 45% 98%;
+        --secondary: 36 26% 90%;
+        --secondary-foreground: 24 12% 15%;
+        --accent: 130 16% 42%;
+        --accent-foreground: 40 45% 98%;
+        --destructive: 5 58% 45%;
+        --destructive-foreground: 40 45% 98%;
+        --success: 130 30% 34%;
+        --success-foreground: 40 45% 98%;
+        --warning: 38 80% 40%;
+        --warning-foreground: 40 45% 98%;
+        --info: 215 45% 45%;
+        --info-foreground: 40 45% 98%;
+        --ring: 17 62% 46%;
+        --star: 40 88% 45%;
+        --radius: 0.75rem;
+        /* pastel topic badges: clay, sage, butter, dusty-blue, lavender, rose, moss, sand */
+        --badge-1: 18 48% 88%;
+        --badge-1-fg: 18 55% 28%;
+        --badge-2: 130 26% 86%;
+        --badge-2-fg: 130 30% 24%;
+        --badge-3: 46 65% 86%;
+        --badge-3-fg: 42 60% 26%;
+        --badge-4: 212 40% 88%;
+        --badge-4-fg: 212 45% 28%;
+        --badge-5: 268 32% 90%;
+        --badge-5-fg: 268 30% 32%;
+        --badge-6: 340 42% 90%;
+        --badge-6-fg: 340 45% 30%;
+        --badge-7: 88 30% 86%;
+        --badge-7-fg: 88 35% 24%;
+        --badge-8: 32 38% 87%;
+        --badge-8-fg: 30 40% 27%;
+    }
 
-  .dark {
-    --background: 30 10% 10%;
-    --foreground: 36 20% 89%;
-    --card: 30 10% 14%;
-    --card-foreground: 36 20% 89%;
-    --popover: 30 10% 14%;
-    --popover-foreground: 36 20% 89%;
-    --muted: 30 9% 19%;
-    --muted-foreground: 33 10% 64%;
-    --border: 30 9% 24%;
-    --input: 30 9% 24%;
-    --primary: 18 68% 60%;
-    --primary-foreground: 24 30% 10%;
-    --secondary: 30 9% 19%;
-    --secondary-foreground: 36 20% 89%;
-    --accent: 130 20% 62%;
-    --accent-foreground: 130 25% 12%;
-    --destructive: 5 68% 64%;
-    --destructive-foreground: 10 30% 10%;
-    --success: 130 28% 58%;
-    --success-foreground: 130 25% 10%;
-    --warning: 42 78% 58%;
-    --warning-foreground: 40 30% 10%;
-    --info: 215 55% 66%;
-    --info-foreground: 215 40% 12%;
-    --ring: 18 68% 60%;
-    --star: 42 90% 60%;
-    --badge-1: 18 26% 25%;  --badge-1-fg: 18 50% 80%;
-    --badge-2: 130 16% 22%; --badge-2-fg: 130 28% 78%;
-    --badge-3: 44 30% 23%;  --badge-3-fg: 46 55% 76%;
-    --badge-4: 212 24% 25%; --badge-4-fg: 212 42% 80%;
-    --badge-5: 268 18% 26%; --badge-5-fg: 268 32% 82%;
-    --badge-6: 340 22% 25%; --badge-6-fg: 340 40% 82%;
-    --badge-7: 88 18% 22%;  --badge-7-fg: 88 28% 76%;
-    --badge-8: 32 22% 24%;  --badge-8-fg: 32 38% 78%;
-  }
+    .dark {
+        --background: 30 10% 10%;
+        --foreground: 36 20% 89%;
+        --card: 30 10% 14%;
+        --card-foreground: 36 20% 89%;
+        --popover: 30 10% 14%;
+        --popover-foreground: 36 20% 89%;
+        --muted: 30 9% 19%;
+        --muted-foreground: 33 10% 64%;
+        --border: 30 9% 24%;
+        --input: 30 9% 24%;
+        --primary: 18 68% 60%;
+        --primary-foreground: 24 30% 10%;
+        --secondary: 30 9% 19%;
+        --secondary-foreground: 36 20% 89%;
+        --accent: 130 20% 62%;
+        --accent-foreground: 130 25% 12%;
+        --destructive: 5 68% 64%;
+        --destructive-foreground: 10 30% 10%;
+        --success: 130 28% 58%;
+        --success-foreground: 130 25% 10%;
+        --warning: 42 78% 58%;
+        --warning-foreground: 40 30% 10%;
+        --info: 215 55% 66%;
+        --info-foreground: 215 40% 12%;
+        --ring: 18 68% 60%;
+        --star: 42 90% 60%;
+        --badge-1: 18 26% 25%;
+        --badge-1-fg: 18 50% 80%;
+        --badge-2: 130 16% 22%;
+        --badge-2-fg: 130 28% 78%;
+        --badge-3: 44 30% 23%;
+        --badge-3-fg: 46 55% 76%;
+        --badge-4: 212 24% 25%;
+        --badge-4-fg: 212 42% 80%;
+        --badge-5: 268 18% 26%;
+        --badge-5-fg: 268 32% 82%;
+        --badge-6: 340 22% 25%;
+        --badge-6-fg: 340 40% 82%;
+        --badge-7: 88 18% 22%;
+        --badge-7-fg: 88 28% 76%;
+        --badge-8: 32 22% 24%;
+        --badge-8-fg: 32 38% 78%;
+    }
 
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground font-sans;
-    font-synthesis-weight: none;
-    text-rendering: optimizeLegibility;
-  }
-  /* Subtle grain overlay for warm paper texture; never intercepts clicks. */
-  body::before {
-    content: "";
-    pointer-events: none;
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    opacity: 0.025;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  /* List density (§9.7): compact tightens everything proportionally via the root rem scale,
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground font-sans;
+        font-synthesis-weight: none;
+        text-rendering: optimizeLegibility;
+    }
+    /* Subtle grain overlay for warm paper texture; never intercepts clicks. */
+    body::before {
+        content: "";
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        opacity: 0.025;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    /* List density (§9.7): compact tightens everything proportionally via the root rem scale,
      so no component needs density-specific classes. */
-  html.density-compact {
-    font-size: 14px;
-  }
+    html.density-compact {
+        font-size: 14px;
+    }
 }
 
 /* Sanitized feed/article HTML (prompt.md §9.1a). Styled once with tokens so the preview never
    needs raw values; the HTML itself is ammonia-sanitized server-side. */
 @layer components {
-  .article-content {
-    @apply text-sm leading-relaxed text-foreground;
-  }
-  .article-content a {
-    @apply text-primary underline underline-offset-2;
-  }
-  .article-content p {
-    @apply my-3;
-  }
-  .article-content img {
-    @apply my-3 h-auto max-w-full rounded-md;
-  }
-  .article-content h1,
-  .article-content h2,
-  .article-content h3 {
-    @apply mb-2 mt-4 font-semibold;
-  }
-  .article-content ul {
-    @apply my-3 list-disc pl-5;
-  }
-  .article-content ol {
-    @apply my-3 list-decimal pl-5;
-  }
-  .article-content pre {
-    @apply my-3 overflow-x-auto rounded-md bg-muted p-3 text-xs;
-  }
-  .article-content code {
-    @apply rounded bg-muted px-1 py-0.5 text-xs;
-  }
-  .article-content blockquote {
-    @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
-  }
+    .article-content {
+        @apply text-sm leading-relaxed text-foreground;
+    }
+    .article-content a {
+        @apply text-primary underline underline-offset-2;
+    }
+    .article-content p {
+        @apply my-3;
+    }
+    .article-content img {
+        @apply my-3 h-auto max-w-full rounded-md;
+    }
+    .article-content h1,
+    .article-content h2,
+    .article-content h3 {
+        @apply mb-2 mt-4 font-semibold;
+    }
+    .article-content ul {
+        @apply my-3 list-disc pl-5;
+    }
+    .article-content ol {
+        @apply my-3 list-decimal pl-5;
+    }
+    .article-content pre {
+        @apply my-3 overflow-x-auto rounded-md bg-muted p-3 text-xs;
+    }
+    .article-content code {
+        @apply rounded bg-muted px-1 py-0.5 text-xs;
+    }
+    .article-content blockquote {
+        @apply my-3 border-l-2 border-border pl-3 text-muted-foreground;
+    }
 }
