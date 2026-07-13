@@ -17,7 +17,7 @@ services:
       BIND_ADDR: 0.0.0.0:8080
       RUST_LOG: ${RUST_LOG:-info,digestly=debug}
     volumes:
-      - ./data:/data
+      - digestly-data:/data
     # Give in-flight writes time to flush on `docker compose stop` (graceful SIGTERM).
     stop_grace_period: 20s
     healthcheck:
@@ -26,3 +26,18 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  digestly-data:
+    # Named volume keeps SQLite on native ext4 inside the Linux VM, avoiding
+    # macOS virtiofs mmap-coherence issues that cause SQLITE_IOERR_SHORT_READ
+    # (error 522) on WAL-mode databases. Bind mounts (./data:/data) go through
+    # virtiofs, which is known-flaky for SQLite under Docker Desktop on macOS.
+    # ----------------------------------------
+    # Migration from a bind mount:
+    #   1. docker compose down
+    #   2. docker compose up -d  (creates empty named volume)
+    #   3. docker cp ./data/digestly.db digestly:/data/digestly.db
+    #   4. docker cp ./data/digestly.db-wal digestly:/data/digestly.db-wal  (if exists)
+    #   5. docker cp ./data/digestly.db-shm digestly:/data/digestly.db-shm  (if exists)
+    #   6. docker compose restart

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use axum::extract::{FromRef, Request, State};
 use axum::http::{HeaderValue, Method, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -16,6 +17,7 @@ use axum_extra::extract::cookie::Key;
 use serde_json::json;
 use sqlx::SqlitePool;
 use tower::ServiceExt;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
@@ -38,6 +40,9 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     /// Wakes the ingestion scheduler for refresh-now / new subscriptions (Phase 3).
     pub ingest_trigger: crate::ingest::IngestTrigger,
+    /// Live event bus + ingest-run registry. Backs `GET /api/events` (SSE) and lets the
+    /// scheduler tell a browser when *its* "Ingest now" actually finished.
+    pub events: crate::events::Events,
     /// WebAuthn Relying Party (passkeys, S1). `None` if RP config is invalid → passkey endpoints
     /// report "not enabled" and the UI hides the button (the app stays fully usable via password).
     pub webauthn: Option<std::sync::Arc<webauthn_rs::Webauthn>>,
@@ -61,7 +66,8 @@ impl FromRef<AppState> for Key {
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health))
-        .merge(crate::routes::api_router());
+        .merge(crate::routes::api_router())
+        .layer(middleware::from_fn(log_500));
 
     // CORS is only for the Tauri origin (the web build is same-origin, served by this binary).
     let cors = CorsLayer::new()
@@ -69,13 +75,35 @@ pub fn router(state: AppState) -> Router {
         .allow_credentials(true)
         .allow_origin(tauri_origins());
 
+    // Never compress the SSE stream: the encoder holds bytes back to fill a block, which
+    // would delay - or swallow - live events until the connection closes.
+    let compression = CompressionLayer::new().compress_when(
+        DefaultPredicate::new().and(NotForContentType::const_new("text/event-stream")),
+    );
+
     Router::new()
         .nest("/api", api)
         .fallback(spa_fallback)
         .layer(TraceLayer::new_for_http())
-        .layer(CompressionLayer::new())
+        .layer(compression)
         .layer(cors)
         .with_state(state)
+}
+
+/// Log server errors with method + URI context. The full error chain is carried
+/// through `InternalError` inserted by `AppError::into_response`.
+async fn log_500(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().to_string();
+    let response = next.run(request).await;
+    if response.status().is_server_error() {
+        if let Some(crate::error::InternalError(e)) = response.extensions().get() {
+            tracing::error!(%method, uri = %uri, error = ?e, "internal error");
+        } else {
+            tracing::error!(%method, uri = %uri, status = %response.status(), "request failed");
+        }
+    }
+    response
 }
 
 /// Allowed cross-origin values used by the Tauri Android/desktop shell.
