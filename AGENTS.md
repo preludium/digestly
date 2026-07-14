@@ -4,13 +4,16 @@ Code changes ship as a pull request, without being asked. Default flow for any t
 touches the repo:
 
 1. Work in a git worktree off `main` (isolates the change; never build on a dirty `main`).
-2. Branch named `<type>/<short-slug>` matching the commit type, e.g. `ci/version-tagged-images`.
+2. Branch named `<issue-number>-<short-slug>`, e.g. `7-version-tagged-images`. With no issue,
+   drop the number: `version-tagged-images`.
 3. Commit with [Conventional Commits](https://www.conventionalcommits.org): `type(scope): subject`
    in the imperative, lowercase subject, no trailing period. Types used here: `feat`, `fix`,
    `ci`, `docs`, `refactor`, `test`, `chore`. Body explains why, not what. Close issues with
    `Closes #N`. Never add an agent as co-author.
-4. Open a PR (`gh pr create`) describing what changed, any behavior change callers must know
-   about, and how it was verified - including what could NOT be verified locally.
+4. Open a PR (`gh pr create`) whose body follows `.github/pull_request_template.md`: What (+
+   `Closes #N`), Why, Behavior changes, Verification, Screenshots for UI, Follow-ups. Keep the
+   headings; drop a section only when it truly does not apply. Verification states what was
+   actually run and what could NOT be verified locally - never "should work".
 
 One commit per logical change; keep unrelated files out of it. Push and PR are the end of the
 task, not a separate ask. Merging stays with the user.
