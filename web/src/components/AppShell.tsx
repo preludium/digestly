@@ -229,7 +229,7 @@ export function AppShell({ user }: { user: User }) {
                     </div>
                 </header>
 
-                <main className={cn("min-h-0 flex-1 overflow-y-auto")}>
+                <main className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto")}>
                     <div className="mx-auto w-full max-w-6xl p-4 sm:p-6">
                         <Outlet />
                     </div>
