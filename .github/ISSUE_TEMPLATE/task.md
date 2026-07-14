@@ -20,6 +20,24 @@ assignees: ""
 
 - [ ] ...
 
+## External behavior this relies on
+
+<!--
+Every claim about something we do NOT control - a browser, an OS, a third-party API, a library, a
+registry - that this issue's design depends on. One line each, with a link to the documentation
+that establishes it. If it cannot be verified from a dev machine, prefix it with ASSUMPTION: so
+that reviewers know to challenge it rather than treat it as settled.
+
+Capability claims ("only Chrome supports X", "Y does not work in Z") belong here without exception.
+They read like architecture and behave like folklore. An unverified one here silently becomes an
+acceptance criterion, and every downstream reader - designer, implementer, reviewer, test - will
+defer to it.
+
+Delete this section only if the change touches nothing outside this repo.
+-->
+
+- ...
+
 ## Scope
 
 <!-- What this issue includes. Files/areas expected to change. -->
