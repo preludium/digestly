@@ -1,4 +1,5 @@
 import {
+    ArrowLeft,
     Check,
     ChevronDown,
     ExternalLink,
@@ -68,7 +69,7 @@ export function ItemPreview({
                         {/* Action bar */}
                         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-4 py-3">
                             <Button variant="ghost" size="sm" onClick={onClose}>
-                                ← Back
+                                <ArrowLeft className="size-4" /> Back
                             </Button>
                             {view && (
                                 <div className="ml-auto flex items-center gap-1">
