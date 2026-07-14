@@ -1,5 +1,6 @@
 import { Rss, Search as SearchIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { EmptyState } from "@/components/common/EmptyState";
 import { IngestButton } from "@/components/feeds/IngestButton";
 import { FilterBar } from "@/components/items/FilterBar";
@@ -26,16 +27,71 @@ export function Feed() {
     const toggleStar = useToggleStar();
     const openAddFeed = useUiStore((s) => s.setAddFeedOpen);
 
-    const [preview, setPreview] = useState<Item | null>(null);
+    const [params, setParams] = useSearchParams();
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    // The open item lives in the URL (`?item=<id>`), not in component state, so that opening one
+    // pushes a history entry: Back (incl. Android's) then closes the preview instead of leaving
+    // the feed. It also makes an open article shareable/refreshable.
+    const previewId = Number(params.get("item")) || null;
+    // The clicked card, so the sheet can render its header instantly instead of waiting on detail.
+    // The cached list row wins over it: read/star mutations patch the cache, the seed is frozen.
+    const [seed, setSeed] = useState<Item | null>(null);
+    const previewItem =
+        previewId == null
+            ? null
+            : (items.data?.items.find((i) => i.id === previewId) ??
+              (seed?.id === previewId ? seed : null));
+
     const [text, setText] = useState(filters.q);
     const searchRef = useRef<HTMLInputElement>(null);
+    const closing = useRef(false);
+
+    const openPreview = useCallback(
+        (item: Item) => {
+            setSeed(item);
+            const p = new URLSearchParams(params);
+            p.set("item", String(item.id));
+            setParams(p, { state: { previewPushed: true } });
+        },
+        [params, setParams],
+    );
+
+    // navigate(-1) is async: until popstate lands the sheet is still mounted, so a double-tap on
+    // the overlay would pop twice and take the user off the feed.
+    useEffect(() => {
+        closing.current = false;
+    }, [previewId]);
+
+    const closePreview = useCallback(() => {
+        if (closing.current) return;
+        closing.current = true;
+        // Pop the entry we pushed, so closing via Back, Escape or the overlay all land in the same
+        // place and leave no phantom entry to back through twice.
+        if (
+            (location.state as { previewPushed?: boolean } | null)
+                ?.previewPushed
+        ) {
+            navigate(-1);
+            return;
+        }
+        // Deep link or reload: there is nothing of ours to pop, so drop the param in place rather
+        // than sending the user back out of the app.
+        const p = new URLSearchParams(params);
+        p.delete("item");
+        setParams(p, { replace: true });
+    }, [location.state, navigate, params, setParams]);
 
     // Debounce the search box into the URL (source of truth for filters).
+    // Held while the preview is open: a filter write pushes a history entry WITHOUT the
+    // previewPushed marker, which would strand the entry we pushed (see closePreview). It fires
+    // once the preview closes, since previewId is a dependency.
     useEffect(() => {
-        if (text === filters.q) return;
+        if (previewId != null || text === filters.q) return;
         const id = setTimeout(() => setFacet("q", text), 300);
         return () => clearTimeout(id);
-    }, [text, filters.q, setFacet]);
+    }, [text, filters.q, previewId, setFacet]);
 
     // Keyboard shortcuts (§9.1). Ignored while typing in a form control.
     useEffect(() => {
@@ -50,38 +106,49 @@ export function Feed() {
             )
                 return;
             if (e.metaKey || e.ctrlKey || e.altKey) return;
+            // The sheet is modal but this listener is on window, and its content is a div - so the
+            // form-control guard above does not catch it. Grid keys must not fire behind the
+            // preview: paging it is meaningless, and any filter write pushes a history entry
+            // without the previewPushed marker, stranding the entry we pushed (see closePreview).
+            const previewOpen = previewId != null;
             switch (e.key) {
                 case "n":
-                    if (items.data && filters.page < items.data.total_pages)
+                    if (
+                        !previewOpen &&
+                        items.data &&
+                        filters.page < items.data.total_pages
+                    )
                         setPage(filters.page + 1);
                     break;
                 case "p":
-                    if (filters.page > 1) setPage(filters.page - 1);
+                    if (!previewOpen && filters.page > 1)
+                        setPage(filters.page - 1);
                     break;
                 case "r":
                     e.preventDefault();
                     ingest.mutate();
                     break;
                 case "/":
+                    if (previewOpen) break;
                     e.preventDefault();
                     searchRef.current?.focus();
                     break;
                 case "o":
-                    if (preview?.url)
-                        window.open(preview.url, "_blank", "noopener");
+                    if (previewItem?.url)
+                        window.open(previewItem.url, "_blank", "noopener");
                     break;
                 case "m":
-                    if (preview)
+                    if (previewItem)
                         toggleRead.mutate({
-                            id: preview.id,
-                            value: !preview.is_read,
+                            id: previewItem.id,
+                            value: !previewItem.is_read,
                         });
                     break;
                 case "s":
-                    if (preview)
+                    if (previewItem)
                         toggleStar.mutate({
-                            id: preview.id,
-                            value: !preview.is_starred,
+                            id: previewItem.id,
+                            value: !previewItem.is_starred,
                         });
                     break;
             }
@@ -91,7 +158,8 @@ export function Feed() {
     }, [
         items.data,
         filters.page,
-        preview,
+        previewId,
+        previewItem,
         setPage,
         ingest,
         toggleRead,
@@ -147,7 +215,7 @@ export function Feed() {
                 isError={items.isError}
                 error={items.error}
                 filters={filters}
-                onOpen={setPreview}
+                onOpen={openPreview}
                 onPage={setPage}
                 emptyTitle={
                     filters.q.trim()
@@ -156,7 +224,11 @@ export function Feed() {
                 }
                 emptyDescription="Try clearing a filter or widening the time range."
             />
-            <ItemPreview item={preview} onClose={() => setPreview(null)} />
+            <ItemPreview
+                itemId={previewId}
+                seed={previewItem}
+                onClose={closePreview}
+            />
         </div>
     );
 }
