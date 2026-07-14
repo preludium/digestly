@@ -17,12 +17,6 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
     useAdminSettings,
     useDeleteUser,
     useUpdateAdminSettings,
@@ -109,87 +103,56 @@ function UserRow({ user, meId }: { user: AdminUser; meId: number }) {
                 {user.last_login_at ?? "never"}
             </TableCell>
             <TableCell>
-                <TooltipProvider>
-                    <div className="flex justify-end gap-2">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={busy || isBuiltin}
-                                    onClick={() =>
-                                        update.mutate({
-                                            id: user.id,
-                                            role:
-                                                user.role === "admin"
-                                                    ? "user"
-                                                    : "admin",
-                                        })
-                                    }
-                                    aria-label={
-                                        user.role === "admin"
-                                            ? "Make user"
-                                            : "Make admin"
-                                    }
-                                >
-                                    {user.role === "admin" ? (
-                                        <>
-                                            <ShieldOff className="size-4" />
-                                            <span className="sr-only sm:not-sr-only sm:ml-1.5">
-                                                Make user
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Shield className="size-4" />
-                                            <span className="sr-only sm:not-sr-only sm:ml-1.5">
-                                                Make admin
-                                            </span>
-                                        </>
-                                    )}
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="sm:hidden">
-                                {user.role === "admin"
-                                    ? "Make user"
-                                    : "Make admin"}
-                            </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    size="sm"
-                                    variant="destructive"
-                                    disabled={busy || isBuiltin || isSelf}
-                                    onClick={() => setDeleting(true)}
-                                    aria-label="Delete"
-                                >
-                                    <Trash2 className="size-4" />
-                                    <span className="sr-only sm:not-sr-only sm:ml-1.5">
-                                        Delete
-                                    </span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="sm:hidden">
-                                Delete
-                            </TooltipContent>
-                        </Tooltip>
-                        <ConfirmDialog
-                            open={deleting}
-                            onOpenChange={setDeleting}
-                            title={`Delete ${user.username}?`}
-                            description="All their data will be permanently removed."
-                            confirmLabel="Delete"
-                            destructive
-                            onConfirm={() => {
-                                del.mutate(user.id, {
-                                    onSuccess: () =>
-                                        toast.success("User deleted"),
-                                });
-                            }}
-                        />
-                    </div>
-                </TooltipProvider>
+                <div className="flex justify-end gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || isBuiltin}
+                        onClick={() =>
+                            update.mutate({
+                                id: user.id,
+                                role: user.role === "admin" ? "user" : "admin",
+                            })
+                        }
+                        aria-label={
+                            user.role === "admin" ? "Make user" : "Make admin"
+                        }
+                    >
+                        {user.role === "admin" ? (
+                            <ShieldOff className="size-4" />
+                        ) : (
+                            <Shield className="size-4" />
+                        )}
+                        <span className="hidden sm:ml-1.5 sm:inline">
+                            {user.role === "admin" ? "Make user" : "Make admin"}
+                        </span>
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={busy || isBuiltin || isSelf}
+                        onClick={() => setDeleting(true)}
+                        aria-label="Delete"
+                    >
+                        <Trash2 className="size-4" />
+                        <span className="hidden sm:ml-1.5 sm:inline">
+                            Delete
+                        </span>
+                    </Button>
+                    <ConfirmDialog
+                        open={deleting}
+                        onOpenChange={setDeleting}
+                        title={`Delete ${user.username}?`}
+                        description="All their data will be permanently removed."
+                        confirmLabel="Delete"
+                        destructive
+                        onConfirm={() => {
+                            del.mutate(user.id, {
+                                onSuccess: () => toast.success("User deleted"),
+                            });
+                        }}
+                    />
+                </div>
             </TableCell>
         </TableRow>
     );
