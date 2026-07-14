@@ -32,6 +32,31 @@ On the Pi itself, no buildx is needed - the normal build already targets ARM64:
 docker compose build      # or: docker compose up --build
 ```
 
+## Release tags
+
+`.github/workflows/docker-publish.yml` publishes multi-arch images to
+`ghcr.io/preludium/digestly` on two triggers:
+
+| Trigger              | Tags produced                                    |
+| -------------------- | ------------------------------------------------ |
+| Git tag `vX.Y.Z`     | `X.Y.Z`, `X.Y`, `X`, `latest`, `sha-<short>`     |
+| Push to `main`       | `edge`, `sha-<short>`                            |
+
+`latest` therefore tracks the newest **release**, not the newest commit - a deploy that wants
+unreleased `main` should pull `edge`. Pin `X.Y.Z` (or `X.Y` to pick up patches) for a stable
+deploy.
+
+`docker/metadata-action` handles the split: the `type=semver` patterns are no-ops on branch
+builds, `latest` is gated on `startsWith(github.ref, 'refs/tags/v')`, and `edge` is gated on
+`is_default_branch`.
+
+Cutting a release is a git tag on `main`:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
 ## CI sketch (GitHub Actions)
 
 ```yaml
