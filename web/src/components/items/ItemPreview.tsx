@@ -21,6 +21,7 @@ import {
     useToggleRead,
     useToggleStar,
 } from "@/hooks/useItems";
+import { externalHref } from "@/lib/externalLink";
 import {
     formatDuration,
     readingTimeLabel,
@@ -225,7 +226,7 @@ function PreviewBody({
                 <div className="flex flex-wrap gap-2">
                     <Button variant="default" size="sm" asChild>
                         <a
-                            href={view.url}
+                            href={externalHref(view.url, view.kind)}
                             target="_blank"
                             rel="noreferrer"
                             onClick={onOpen}

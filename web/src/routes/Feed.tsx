@@ -12,6 +12,7 @@ import { useFeedFilters } from "@/hooks/useFeedFilters";
 import { useFeeds } from "@/hooks/useFeeds";
 import { useIngestNow } from "@/hooks/useIngest";
 import { useItems, useToggleRead, useToggleStar } from "@/hooks/useItems";
+import { externalHref } from "@/lib/externalLink";
 import type { Item } from "@/lib/types";
 import { useUiStore } from "@/stores/ui";
 
@@ -135,7 +136,11 @@ export function Feed() {
                     break;
                 case "o":
                     if (previewItem?.url)
-                        window.open(previewItem.url, "_blank", "noopener");
+                        window.open(
+                            externalHref(previewItem.url, previewItem.kind),
+                            "_blank",
+                            "noopener",
+                        );
                     break;
                 case "m":
                     if (previewItem)
