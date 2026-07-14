@@ -13,6 +13,14 @@ const ANDROID_FIREFOX =
 // ERR_UNKNOWN_URL_SCHEME and never reaches the fallback - note the `; wv)` token.
 const ANDROID_WEBVIEW =
     "Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.0.0 Mobile Safari/537.36";
+// The other Android Chromium browsers. All honour intent://; Samsung Internet is the default
+// browser on Samsung phones, so this is not a rounding error.
+const SAMSUNG_INTERNET =
+    "Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36";
+const EDGE_ANDROID =
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36 EdgA/126.0.0.0";
+const OPERA_ANDROID =
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36 OPR/79.0.0.0";
 
 function ua(value: string) {
     vi.stubGlobal("navigator", { userAgent: value });
@@ -96,6 +104,19 @@ describe("externalHref on Android Chrome", () => {
             "http://www.reddit.com/r/rust",
         );
         expect(externalHref("not a url", "reddit")).toBe("not a url");
+    });
+});
+
+describe("externalHref on the other Android Chromium browsers", () => {
+    it.each([
+        ["Samsung Internet", SAMSUNG_INTERNET],
+        ["Edge", EDGE_ANDROID],
+        ["Opera", OPERA_ANDROID],
+    ])("rewrites on %s, which is Chromium and honours intent://", (_, agent) => {
+        ua(agent);
+        expect(externalHref(REDDIT, "reddit")).toContain(
+            "intent://www.reddit.com/",
+        );
     });
 });
 
