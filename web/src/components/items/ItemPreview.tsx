@@ -32,86 +32,97 @@ import { cn } from "@/lib/utils";
 
 /** The reading surface (§9.1a). Full-width overlay on mobile, right sheet ≥820px. Reading items
  *  render sanitized HTML; video items are shown AS TEXT (summary slot → transcript → watch link).
- *  Opening an item marks it read. */
+ *  Clicking through to the original marks the item read.
+ *
+ *  Driven by an id, not an item: the id comes from the URL, so a deep-linked article opens before
+ *  any card for it is in the cache. `seed` is the clicked card when there is one - it renders the
+ *  header instantly instead of waiting on the detail request. */
 export function ItemPreview({
-    item,
+    itemId,
+    seed,
     onClose,
 }: {
-    item: Item | null;
+    itemId: number | null;
+    seed?: Item | null;
     onClose: () => void;
 }) {
-    const detailQuery = useItem(item?.id ?? null);
+    const detailQuery = useItem(itemId);
     const detail = detailQuery.data;
     const toggleStar = useToggleStar();
     const toggleRead = useToggleRead();
 
-    // The card gives us instant header data; detail fills in body + fresh state.
-    const view = (detail ?? item) as (Item & Partial<ItemDetail>) | null;
+    const view = (detail ?? (seed?.id === itemId ? seed : null)) as
+        | (Item & Partial<ItemDetail>)
+        | null;
 
     return (
-        <Sheet open={item != null} onOpenChange={(o) => !o && onClose()}>
+        <Sheet open={itemId != null} onOpenChange={(o) => !o && onClose()}>
             <SheetContent
                 side="right"
                 showClose={false}
                 className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-xl"
             >
-                {view && (
+                {itemId != null && (
                     <>
                         {/* Action bar */}
                         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-4 py-3">
                             <Button variant="ghost" size="sm" onClick={onClose}>
                                 ← Back
                             </Button>
-                            <div className="ml-auto flex items-center gap-1">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label={
-                                        view.is_starred ? "Unstar" : "Star"
-                                    }
-                                    onClick={() =>
-                                        toggleStar.mutate({
-                                            id: view.id,
-                                            value: !view.is_starred,
-                                        })
-                                    }
-                                >
-                                    <Star
-                                        className={cn(
-                                            "size-5",
-                                            view.is_starred &&
-                                                "fill-star text-star",
+                            {view && (
+                                <div className="ml-auto flex items-center gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        aria-label={
+                                            view.is_starred ? "Unstar" : "Star"
+                                        }
+                                        onClick={() =>
+                                            toggleStar.mutate({
+                                                id: view.id,
+                                                value: !view.is_starred,
+                                            })
+                                        }
+                                    >
+                                        <Star
+                                            className={cn(
+                                                "size-5",
+                                                view.is_starred &&
+                                                    "fill-star text-star",
+                                            )}
+                                        />
+                                    </Button>
+                                    <Button
+                                        variant={
+                                            view.is_read
+                                                ? "secondary"
+                                                : "default"
+                                        }
+                                        size="sm"
+                                        onClick={() =>
+                                            toggleRead.mutate({
+                                                id: view.id,
+                                                value: !view.is_read,
+                                            })
+                                        }
+                                    >
+                                        {view.is_read ? (
+                                            <>
+                                                <Check className="size-4" />{" "}
+                                                Mark as unread
+                                            </>
+                                        ) : (
+                                            "Mark as read"
                                         )}
-                                    />
-                                </Button>
-                                <Button
-                                    variant={
-                                        view.is_read ? "secondary" : "default"
-                                    }
-                                    size="sm"
-                                    onClick={() =>
-                                        toggleRead.mutate({
-                                            id: view.id,
-                                            value: !view.is_read,
-                                        })
-                                    }
-                                >
-                                    {view.is_read ? (
-                                        <>
-                                            <Check className="size-4" /> Mark as
-                                            unread
-                                        </>
-                                    ) : (
-                                        "Mark as read"
-                                    )}
-                                </Button>
-                            </div>
+                                    </Button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex-1 px-4 py-4">
                             {detailQuery.isError ? (
                                 <ErrorBanner error={detailQuery.error} />
-                            ) : (
+                            ) : view ? (
                                 <PreviewBody
                                     view={view}
                                     loading={detailQuery.isLoading}
@@ -119,6 +130,17 @@ export function ItemPreview({
                                         markReadOnOpen(view, toggleRead)
                                     }
                                 />
+                            ) : (
+                                /* Deep link: nothing cached for this id yet. */
+                                <div className="space-y-3" role="status">
+                                    <span className="sr-only">
+                                        Loading article
+                                    </span>
+                                    <Skeleton className="h-7 w-3/4" />
+                                    <Skeleton className="h-4 w-1/3" />
+                                    <Skeleton className="h-4 w-full" />
+                                    <Skeleton className="h-4 w-5/6" />
+                                </div>
                             )}
                         </div>
                     </>

@@ -39,6 +39,10 @@ function parse(params: URLSearchParams): FeedFilters {
 /** Facets that count toward the "active filters" badge (everything except sort/page/q). */
 export const FACET_KEYS = ["type", "status", "cat", "when"] as const;
 
+/** Query params this hook owns. Anything else in the URL belongs to another feature (e.g. the
+ *  feed's `item` deep link) and must survive a filter write. */
+const OWN_KEYS = new Set<string>([...FACET_KEYS, "sort", "page", "q"]);
+
 export function activeFilterCount(f: FeedFilters): number {
     let n = 0;
     if (f.type !== DEFAULTS.type) n++;
@@ -67,9 +71,10 @@ export function useFeedFilters(includeQuery = false) {
             if (next.sort !== DEFAULTS.sort) p.set("sort", next.sort);
             if (next.page !== 1) p.set("page", String(next.page));
             if (includeQuery && next.q) p.set("q", next.q);
+            for (const [k, v] of params) if (!OWN_KEYS.has(k)) p.set(k, v);
             setParams(p, { replace: false });
         },
-        [includeQuery, setParams],
+        [includeQuery, params, setParams],
     );
 
     const setFacet = useCallback(
