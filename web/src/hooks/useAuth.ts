@@ -68,11 +68,21 @@ export function useLogoutEverywhere() {
 }
 
 export function useChangePassword() {
+    const qc = useQueryClient();
     return useMutation({
         mutationFn: (body: {
             current_password: string;
             new_password: string;
-        }) => api.patch<{ ok: boolean }>("/me", body),
+        }) => api.patch<User>("/me", body),
+        onSuccess: (user) => qc.setQueryData(["me"], user),
+    });
+}
+
+export function useUpdateUsername() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (username: string) => api.patch<User>("/me", { username }),
+        onSuccess: (user) => qc.setQueryData(["me"], user),
     });
 }
 

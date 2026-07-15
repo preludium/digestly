@@ -44,7 +44,7 @@ pub async fn run() -> Result<()> {
     db::migrate(&pool).await?;
 
     // A demo user with the standard seeded categories.
-    let user_id: i64 = sqlx::query("INSERT INTO users (username, password_hash, role) VALUES ('demo', 'x', 'user') RETURNING id")
+    let user_id: i64 = sqlx::query("INSERT INTO users (username, display_username, password_hash, role) VALUES ('demo', 'demo', 'x', 'user') RETURNING id")
         .fetch_one(&pool)
         .await?
         .get("id");

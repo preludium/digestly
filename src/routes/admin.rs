@@ -42,7 +42,8 @@ async fn list_users(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<AdminUserDto>>> {
     let rows = sqlx::query(
-        "SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at,
+        "SELECT u.id, COALESCE(u.display_username, u.username) AS username,
+                u.role, u.disabled, u.created_at, u.last_login_at,
                 (SELECT COUNT(*) FROM subscriptions s WHERE s.user_id = u.id) AS sub_count
          FROM users u
          ORDER BY u.id",
@@ -299,6 +300,9 @@ struct TargetUser {
 }
 
 async fn fetch_target(pool: &SqlitePool, id: i64) -> ApiResult<TargetUser> {
+    // Return the CANONICAL (normalized) username, NOT the display value: this row feeds
+    // `target.username == ADMIN_USERNAME` guards (built-in-admin protection at `update_user` and
+    // `delete_user`), which are case-sensitive `==` against the stored normalized form.
     let row = sqlx::query("SELECT username, role, disabled FROM users WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)

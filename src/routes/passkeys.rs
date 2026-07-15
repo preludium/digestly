@@ -81,11 +81,21 @@ async fn register_options(
         Some(exclude)
     };
 
+    // WebAuthn `name` is the RP-facing account handle (canonical, matches every ADMIN_USERNAME
+    // guard elsewhere); `display_name` is what the OS shows in the prompt and should reflect
+    // the user-chosen casing. Both are frozen inside the authenticator at credential creation -
+    // a later username rename does NOT update authenticator-side metadata.
+    let display_name: String =
+        sqlx::query("SELECT COALESCE(display_username, username) AS n FROM users WHERE id = ?")
+            .bind(user.id)
+            .fetch_one(&state.pool)
+            .await?
+            .get("n");
     let (options, reg_state) = webauthn
         .start_passkey_registration(
             passkey::user_handle(user.id),
             &user.username,
-            &user.username,
+            &display_name,
             exclude,
         )
         .map_err(webauthn_bad_request)?;
@@ -195,7 +205,9 @@ async fn login_options(
     Json(body): Json<LoginOptions>,
 ) -> ApiResult<Json<CeremonyResponse<RequestChallengeResponse>>> {
     let webauthn = rp(&state)?;
-    let username = body.username.trim().to_lowercase();
+    // Share the exact same trim+Unicode-lowercase pass used by password login and register
+    // (`crate::routes::auth::normalize_username`) so the two flows can't drift.
+    let username = crate::routes::auth::normalize_username(&body.username);
 
     // Resolve the user (must be enabled). Errors here are intentionally the same shape.
     let row = sqlx::query("SELECT id, disabled FROM users WHERE username = ?")
@@ -387,10 +399,13 @@ async fn finish_login(
         .await?;
 
     // Resolve identity and issue a session (same shape as password login).
-    let urow = sqlx::query("SELECT id, username, role FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_one(&state.pool)
-        .await?;
+    let urow = sqlx::query(
+        "SELECT id, COALESCE(display_username, username) AS username, role
+         FROM users WHERE id = ?",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await?;
     let role = Role::from_db(urow.get::<String, _>("role").as_str());
     sqlx::query("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
         .bind(user_id)
