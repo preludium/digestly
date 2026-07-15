@@ -83,7 +83,7 @@ export function ItemCard({
         >
             {/* Thumbnail */}
             <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                <Thumb item={item} />
+                <Thumb key={item.id} item={item} />
                 {isVideo && (
                     <>
                         <span className="absolute inset-0 flex items-center justify-center">
