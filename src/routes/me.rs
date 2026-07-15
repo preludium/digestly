@@ -56,100 +56,114 @@ async fn patch_me(
     if body.username.is_none() && body.new_password.is_none() {
         return Err(AppError::BadRequest("nothing to update".into()));
     }
-
-    // ── Rename branch ────────────────────────────────────────────────────────
     if let Some(u) = body.username.as_deref() {
-        // The built-in admin account name is load-bearing (ADMIN_USERNAME guards); never let it
-        // be renamed away.
-        if user.username == ADMIN_USERNAME {
-            return Err(AppError::Forbidden);
-        }
-        let raw = u.trim().to_string();
-        validate_username(&raw)?;
-        let norm = normalize_username(&raw);
-        // Renaming INTO "admin" is refused for everyone else too. Return the same opaque
-        // Conflict as any other collision so we don't leak that "admin" is reserved.
-        if norm == ADMIN_USERNAME {
-            return Err(AppError::Conflict("username already taken".into()));
-        }
-        // Best-effort pre-check for a clearer error path; the UNIQUE-violation branch below
-        // closes the race window.
-        let taken = sqlx::query("SELECT 1 FROM users WHERE username = ? AND id != ? LIMIT 1")
-            .bind(&norm)
-            .bind(user.id)
-            .fetch_optional(&state.pool)
-            .await?
-            .is_some();
-        if taken {
-            return Err(AppError::Conflict("username already taken".into()));
-        }
-
-        let res = sqlx::query("UPDATE users SET username = ?, display_username = ? WHERE id = ?")
-            .bind(&norm)
-            .bind(&raw)
-            .bind(user.id)
-            .execute(&state.pool)
-            .await;
-        match res {
-            Ok(_) => {}
-            Err(sqlx::Error::Database(e))
-                if e.kind() == sqlx::error::ErrorKind::UniqueViolation =>
-            {
-                return Err(AppError::Conflict("username already taken".into()));
-            }
-            Err(e) => return Err(e.into()),
-        }
-        // Sessions are NOT invalidated on rename: `sessions.user_id` is the FK, so the cookie
-        // keeps working and the next request will read the new username via `CurrentUser`.
+        rename_username(&state, &user, u).await?;
     }
-
-    // ── Password branch (behavior verbatim to the pre-rename handler) ────────
     if let Some(new_password) = body.new_password.as_deref() {
-        let current_password = body
-            .current_password
-            .as_deref()
-            .ok_or_else(|| AppError::BadRequest("current password is incorrect".into()))?;
+        change_password_for(&state, user.id, body.current_password.as_deref(), new_password).await?;
+    }
+    Ok(Json(load_me_dto(&state, user.id).await?))
+}
 
-        let stored: Option<String> = sqlx::query("SELECT password_hash FROM users WHERE id = ?")
-            .bind(user.id)
-            .fetch_one(&state.pool)
-            .await?
-            .get("password_hash");
-
-        let ok = stored
-            .as_deref()
-            .map(|h| verify_password(current_password, h))
-            .unwrap_or(false);
-        if !ok {
-            return Err(AppError::BadRequest("current password is incorrect".into()));
-        }
-        if new_password.chars().count() < 8 {
-            return Err(AppError::BadRequest(
-                "new password must be at least 8 characters".into(),
-            ));
-        }
-
-        let hash = hash_password(new_password)?;
-        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
-            .bind(&hash)
-            .bind(user.id)
-            .execute(&state.pool)
-            .await?;
+/// Rename the current user. Rejects the built-in admin, validates the name, refuses collisions
+/// (including rename-INTO "admin" from a non-admin), and maps a UNIQUE-violation on the UPDATE
+/// to the same opaque `Conflict` as the pre-check. Sessions are NOT invalidated - `sessions.user_id`
+/// is the FK, so the cookie keeps working and the next request re-reads the new name via
+/// `CurrentUser`.
+async fn rename_username(state: &AppState, user: &CurrentUser, raw_input: &str) -> ApiResult<()> {
+    // The built-in admin account name is load-bearing (ADMIN_USERNAME guards); never let it
+    // be renamed away.
+    if user.username == ADMIN_USERNAME {
+        return Err(AppError::Forbidden);
+    }
+    let raw = raw_input.trim().to_string();
+    validate_username(&raw)?;
+    let norm = normalize_username(&raw);
+    // Renaming INTO "admin" is refused for everyone else too. Return the same opaque Conflict
+    // as any other collision so we don't leak that "admin" is reserved.
+    if norm == ADMIN_USERNAME {
+        return Err(AppError::Conflict("username already taken".into()));
+    }
+    // Best-effort pre-check for a clearer error path; the UNIQUE-violation branch below closes
+    // the race window.
+    let taken = sqlx::query("SELECT 1 FROM users WHERE username = ? AND id != ? LIMIT 1")
+        .bind(&norm)
+        .bind(user.id)
+        .fetch_optional(&state.pool)
+        .await?
+        .is_some();
+    if taken {
+        return Err(AppError::Conflict("username already taken".into()));
     }
 
-    // Final read - display username, current role.
+    let res = sqlx::query("UPDATE users SET username = ?, display_username = ? WHERE id = ?")
+        .bind(&norm)
+        .bind(&raw)
+        .bind(user.id)
+        .execute(&state.pool)
+        .await;
+    match res {
+        Ok(_) => Ok(()),
+        Err(sqlx::Error::Database(e)) if e.kind() == sqlx::error::ErrorKind::UniqueViolation => {
+            Err(AppError::Conflict("username already taken".into()))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Change the given user's password. Requires `current_password` to match the stored hash and
+/// `new_password` to be at least 8 characters. Behavior is verbatim to the pre-rename handler.
+async fn change_password_for(
+    state: &AppState,
+    user_id: i64,
+    current_password: Option<&str>,
+    new_password: &str,
+) -> ApiResult<()> {
+    let current_password = current_password
+        .ok_or_else(|| AppError::BadRequest("current password is incorrect".into()))?;
+
+    let stored: Option<String> = sqlx::query("SELECT password_hash FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(&state.pool)
+        .await?
+        .get("password_hash");
+
+    let ok = stored
+        .as_deref()
+        .map(|h| verify_password(current_password, h))
+        .unwrap_or(false);
+    if !ok {
+        return Err(AppError::BadRequest("current password is incorrect".into()));
+    }
+    if new_password.chars().count() < 8 {
+        return Err(AppError::BadRequest(
+            "new password must be at least 8 characters".into(),
+        ));
+    }
+
+    let hash = hash_password(new_password)?;
+    sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(&hash)
+        .bind(user_id)
+        .execute(&state.pool)
+        .await?;
+    Ok(())
+}
+
+/// Read the current `UserDto` for `user_id` with display casing.
+async fn load_me_dto(state: &AppState, user_id: i64) -> ApiResult<UserDto> {
     let row = sqlx::query(
         "SELECT id, COALESCE(display_username, username) AS username, role
          FROM users WHERE id = ?",
     )
-    .bind(user.id)
+    .bind(user_id)
     .fetch_one(&state.pool)
     .await?;
-    Ok(Json(UserDto {
+    Ok(UserDto {
         id: row.get("id"),
         username: row.get("username"),
         role: Role::from_db(row.get::<String, _>("role").as_str()),
-    }))
+    })
 }
 
 /// `DELETE /api/me` - delete own account (cascades all per-user data). Blocked for built-in admin.
