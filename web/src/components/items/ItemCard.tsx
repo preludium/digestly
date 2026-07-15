@@ -1,4 +1,5 @@
 import { ImageIcon, MessageSquare, Play, Star, TrendingUp } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
     formatDuration,
@@ -9,6 +10,50 @@ import { highlight } from "@/lib/highlight";
 import { topicBadgeClass } from "@/lib/topicColor";
 import type { Item } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+function RedditLogo() {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="size-8"
+            aria-hidden="true"
+        >
+            <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547.8-3.747c-1.117-.248-2.283-.371-3.495-.391v7.335c.264-.037.537-.07.814-.085a4.07 4.07 0 0 1 3.955 3.632 4.07 4.07 0 0 1-3.94 4.463 4.07 4.07 0 0 1-4.103-3.922 4.068 4.068 0 0 1 2.835-3.861V8.08h.004c-1.947.073-3.786.56-5.192 1.317a1.252 1.252 0 0 1-1.532-1.797c1.623-1.27 3.96-2.09 6.723-2.176v-.038a1.25 1.25 0 0 1-.988-1.642zm-5.146 12.63c-.339 0-.614.202-.614.45 0 .25.275.452.614.452.34 0 .615-.202.615-.451 0-.248-.275-.45-.615-.45zm3.726.902c-1.46 1.46-4.02 1.571-5.37.24a.237.237 0 0 1-.004-.335.237.237 0 0 1 .336-.004c1.113 1.097 3.117.976 4.36-.267.519-.52.78-1.19.78-1.91a.238.238 0 0 1 .476 0c0 .902-.345 1.77-.578 2.276zm.566-1.352c-.34 0-.615.202-.615.45 0 .25.275.452.615.452.339 0 .614-.202.614-.451 0-.248-.275-.45-.614-.45z" />
+        </svg>
+    );
+}
+
+function Thumb({ item }: { item: Item }) {
+    const [errored, setErrored] = useState(false);
+
+    if (item.image_url && !errored) {
+        return (
+            <img
+                src={item.image_url}
+                alt=""
+                loading="lazy"
+                className="size-full object-cover"
+                onError={() => setErrored(true)}
+            />
+        );
+    }
+
+    if (item.kind === "reddit") {
+        return (
+            <div className="flex size-full items-center justify-center text-muted-foreground">
+                <RedditLogo />
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex size-full items-center justify-center text-muted-foreground">
+            <ImageIcon className="size-8" />
+        </div>
+    );
+}
 
 /** The single card used by both the feed and search grids (prompt.md §9.1 - DRY, one card). */
 export function ItemCard({
@@ -38,18 +83,7 @@ export function ItemCard({
         >
             {/* Thumbnail */}
             <div className="relative aspect-video w-full overflow-hidden bg-muted">
-                {item.image_url ? (
-                    <img
-                        src={item.image_url}
-                        alt=""
-                        loading="lazy"
-                        className="size-full object-cover"
-                    />
-                ) : (
-                    <div className="flex size-full items-center justify-center text-muted-foreground">
-                        <ImageIcon className="size-8" />
-                    </div>
-                )}
+                <Thumb item={item} />
                 {isVideo && (
                     <>
                         <span className="absolute inset-0 flex items-center justify-center">
