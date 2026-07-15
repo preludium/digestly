@@ -3049,3 +3049,189 @@ async fn oauth_refresh_token_is_encrypted_and_never_returned() {
     );
     assert!(!dump.contains("refresh_token"), "no token field is exposed");
 }
+
+// ---------------------------------------------------------------------------
+// Issue #6: Unicode-aware usernames + rename via PATCH /api/me.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn unicode_username_registers_and_logs_in_case_insensitively() {
+    let (app, _pool, _d) = test_app().await;
+
+    let reg = register(&app, "Łukasz", "password123").await;
+    assert_eq!(reg.status, StatusCode::OK);
+    assert_eq!(reg.body["username"], "Łukasz");
+
+    for casing in ["łukasz", "ŁUKASZ", "Łukasz"] {
+        let lg = login(&app, casing, "password123").await;
+        assert_eq!(lg.status, StatusCode::OK, "login failed for {casing}");
+        assert_eq!(
+            lg.body["username"], "Łukasz",
+            "response carries display casing for {casing}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn unicode_username_collision_is_rejected() {
+    let (app, _pool, _d) = test_app().await;
+
+    let first = register(&app, "Łukasz", "password123").await;
+    assert_eq!(first.status, StatusCode::OK);
+
+    let second = register(&app, "łukasz", "password123").await;
+    assert_eq!(second.status, StatusCode::CONFLICT);
+    assert_eq!(second.body["error"], "username already taken");
+}
+
+#[tokio::test]
+async fn combining_marks_are_rejected() {
+    let (app, _pool, _d) = test_app().await;
+
+    // "e" + U+0301 COMBINING ACUTE ACCENT - decomposed form, category Mn. is_alphanumeric()
+    // returns false for the combining mark so the whole name fails charset validation.
+    let reg = register(&app, "e\u{0301}lise", "password123").await;
+    assert_eq!(reg.status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn rename_happy_path() {
+    let (app, _pool, _d) = test_app().await;
+
+    let bob = register(&app, "bob", "password123").await;
+    assert_eq!(bob.status, StatusCode::OK);
+    let cookie = bob.cookie.unwrap();
+
+    let rename = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({ "username": "Bobby" })),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(rename.status, StatusCode::OK);
+    assert_eq!(rename.body["username"], "Bobby");
+
+    let me = call(&app, "GET", "/api/me", None, Some(&cookie)).await;
+    assert_eq!(me.status, StatusCode::OK);
+    assert_eq!(me.body["username"], "Bobby");
+
+    let relogin = login(&app, "BOBBY", "password123").await;
+    assert_eq!(relogin.status, StatusCode::OK);
+    assert_eq!(relogin.body["username"], "Bobby");
+}
+
+#[tokio::test]
+async fn rename_collision_returns_409() {
+    let (app, _pool, _d) = test_app().await;
+
+    let alice = register(&app, "alice", "password123").await;
+    assert_eq!(alice.status, StatusCode::OK);
+    let bob = register(&app, "bob", "password123").await;
+    assert_eq!(bob.status, StatusCode::OK);
+    let bob_c = bob.cookie.unwrap();
+
+    // Any casing of the taken name should collide - the DB stores the normalized form.
+    let clash = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({ "username": "ALICE" })),
+        Some(&bob_c),
+    )
+    .await;
+    assert_eq!(clash.status, StatusCode::CONFLICT);
+    assert_eq!(clash.body["error"], "username already taken");
+}
+
+#[tokio::test]
+async fn rename_builtin_admin_forbidden() {
+    let (app, _pool, _d) = test_app().await;
+
+    let admin = login(&app, "admin", ADMIN_PW).await;
+    assert_eq!(admin.status, StatusCode::OK);
+    let admin_c = admin.cookie.unwrap();
+
+    let attempt = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({ "username": "root" })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(attempt.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn rename_to_admin_blocked() {
+    let (app, _pool, _d) = test_app().await;
+
+    let alice = register(&app, "alice", "password123").await;
+    let alice_c = alice.cookie.unwrap();
+
+    let attempt = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({ "username": "Admin" })),
+        Some(&alice_c),
+    )
+    .await;
+    assert_eq!(attempt.status, StatusCode::CONFLICT);
+    assert_eq!(attempt.body["error"], "username already taken");
+}
+
+#[tokio::test]
+async fn legacy_change_password_still_works() {
+    let (app, _pool, _d) = test_app().await;
+
+    let alice = register(&app, "alice", "password123").await;
+    let alice_c = alice.cookie.unwrap();
+
+    let change = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({
+            "current_password": "password123",
+            "new_password": "newpassword1"
+        })),
+        Some(&alice_c),
+    )
+    .await;
+    assert_eq!(change.status, StatusCode::OK);
+
+    assert_eq!(
+        login(&app, "alice", "newpassword1").await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        login(&app, "alice", "password123").await.status,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn rename_does_not_invalidate_session() {
+    let (app, _pool, _d) = test_app().await;
+
+    let bob = register(&app, "bob", "password123").await;
+    let cookie = bob.cookie.unwrap();
+
+    let rename = call(
+        &app,
+        "PATCH",
+        "/api/me",
+        Some(json!({ "username": "Bobby" })),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(rename.status, StatusCode::OK);
+
+    // Same cookie, no re-login: the session survives a rename because sessions key on user_id.
+    let me = call(&app, "GET", "/api/me", None, Some(&cookie)).await;
+    assert_eq!(me.status, StatusCode::OK);
+    assert_eq!(me.body["username"], "Bobby");
+}

@@ -54,8 +54,9 @@ async fn register(
     if !allow_registration(&state.pool).await? {
         return Err(AppError::RegistrationDisabled);
     }
+    let raw = body.username.trim().to_string();
+    validate_username(&raw)?;
     let username = normalize_username(&body.username);
-    validate_username(&username)?;
     validate_password(&body.password)?;
 
     let taken = sqlx::query("SELECT 1 FROM users WHERE username = ?")
@@ -68,16 +69,28 @@ async fn register(
     }
 
     let hash = hash_password(&body.password)?;
-    let id: i64 = sqlx::query(
-        "INSERT INTO users (username, password_hash, role, last_login_at)
-         VALUES (?, ?, ?, datetime('now')) RETURNING id",
+    // Race between the pre-check above and the INSERT: UNIQUE(username) closes the window, but
+    // sqlx's default `From<sqlx::Error>` renders it as 500. Map the UNIQUE-constraint case
+    // explicitly to the same 409 the pre-check would surface.
+    let insert = sqlx::query(
+        "INSERT INTO users (username, display_username, password_hash, role, last_login_at)
+         VALUES (?, ?, ?, ?, datetime('now')) RETURNING id",
     )
     .bind(&username)
+    .bind(&raw)
     .bind(&hash)
     .bind(Role::User.as_str())
     .fetch_one(&state.pool)
-    .await?
-    .get("id");
+    .await;
+    let id: i64 = match insert {
+        Ok(row) => row.get("id"),
+        Err(sqlx::Error::Database(e))
+            if e.kind() == sqlx::error::ErrorKind::UniqueViolation =>
+        {
+            return Err(AppError::Conflict("username already taken".into()));
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     seed_default_categories(&state.pool, id).await?;
 
@@ -87,7 +100,7 @@ async fn register(
         jar,
         Json(UserDto {
             id,
-            username,
+            username: raw,
             role: Role::User,
         }),
     ))
@@ -101,7 +114,8 @@ async fn login(
 ) -> ApiResult<(SignedCookieJar, Json<UserDto>)> {
     let username = normalize_username(&body.username);
     let row = sqlx::query(
-        "SELECT id, username, role, disabled, password_hash FROM users WHERE username = ?",
+        "SELECT id, COALESCE(display_username, username) AS username, role, disabled, password_hash
+         FROM users WHERE username = ?",
     )
     .bind(&username)
     .fetch_optional(&state.pool)
@@ -171,20 +185,43 @@ pub async fn allow_registration(pool: &SqlitePool) -> ApiResult<bool> {
     Ok(val.map(|v| v == "true").unwrap_or(true))
 }
 
-fn normalize_username(raw: &str) -> String {
+/// Trim + full-Unicode lowercase. Canonical form for storage, uniqueness, and
+/// `ADMIN_USERNAME` guards. Not NFC-normalized: decomposed sequences are rejected upstream
+/// via `validate_username`, so we never see a combining mark reach this point.
+pub(crate) fn normalize_username(raw: &str) -> String {
     raw.trim().to_lowercase()
 }
 
-fn validate_username(username: &str) -> ApiResult<()> {
-    let len = username.chars().count();
-    if !(3..=32).contains(&len) {
+/// Enforce the username invariant on both the raw trimmed input and its normalized form.
+///
+/// Length: `chars().count() ∈ [3, 32]` on BOTH sides. Rust's `to_lowercase()` is Unicode-aware
+/// and can change the char count for exotic codepoints (e.g. "İ" U+0130 → "i" + U+0307), so a
+/// 32-char raw could normalize to 33 chars and silently slip past a one-sided check.
+///
+/// Charset (checked on the normalized form): `c.is_alphanumeric() || matches!(c, '.' | '_' | '-')`.
+/// `is_alphanumeric()` is Unicode-aware and returns `true` for letters/digits from all scripts
+/// (e.g. "Łukasz"), but `false` for category-Mn combining marks (U+0301 COMBINING ACUTE ACCENT)
+/// and category-Cf format chars (U+200D ZERO WIDTH JOINER). We deliberately do NOT apply NFC
+/// normalization here - the `unicode-normalization` crate is not a dependency, and rejecting
+/// decomposed input keeps us from silently rewriting user-facing bytes.
+pub(crate) fn validate_username(raw: &str) -> ApiResult<()> {
+    let trimmed = raw.trim();
+    let raw_len = trimmed.chars().count();
+    if !(3..=32).contains(&raw_len) {
         return Err(AppError::BadRequest(
             "username must be 3–32 characters".into(),
         ));
     }
-    if !username
+    let norm = normalize_username(trimmed);
+    let norm_len = norm.chars().count();
+    if !(3..=32).contains(&norm_len) {
+        return Err(AppError::BadRequest(
+            "username must be 3–32 characters".into(),
+        ));
+    }
+    if !norm
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        .all(|c| c.is_alphanumeric() || matches!(c, '.' | '_' | '-'))
     {
         return Err(AppError::BadRequest(
             "username may contain only letters, digits, and . _ -".into(),

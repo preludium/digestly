@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { FieldError } from "@/components/common/AuthCard";
@@ -17,6 +17,7 @@ import {
     useDeleteAccount,
     useLogoutEverywhere,
     useMe,
+    useUpdateUsername,
 } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +27,21 @@ export function Profile() {
     const navigate = useNavigate();
     const { data: me } = useMe();
     const changePassword = useChangePassword();
+    const updateUsername = useUpdateUsername();
     const logoutAll = useLogoutEverywhere();
     const deleteAccount = useDeleteAccount();
     const [deleting, setDeleting] = useState(false);
+
+    const [username, setUsername] = useState(me?.username ?? "");
+    const [touchedUsername, setTouchedUsername] = useState(false);
+
+    // Prefill from the server once me loads, and re-sync after a successful rename.
+    useEffect(() => {
+        if (me) {
+            setUsername(me.username);
+            setTouchedUsername(false);
+        }
+    }, [me]);
 
     const [current, setCurrent] = useState("");
     const [next, setNext] = useState("");
@@ -39,12 +52,33 @@ export function Profile() {
         confirm: false,
     });
 
+    const usernameError =
+        username.trim().length >= 3 && username.trim().length <= 32
+            ? undefined
+            : "3-32 characters";
+    const canSubmitUsername =
+        !usernameError &&
+        !updateUsername.isPending &&
+        username.trim() !== (me?.username ?? "");
+
     const errors = {
         current: current ? undefined : "Required",
         next: next.length >= 8 ? undefined : "At least 8 characters",
         confirm: confirm === next ? undefined : "Passwords do not match",
     };
     const canSubmit = !errors.current && !errors.next && !errors.confirm;
+
+    const submitUsername = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!canSubmitUsername) return;
+        updateUsername.mutate(username.trim(), {
+            onSuccess: (user) => {
+                toast.success("Username updated");
+                setUsername(user.username);
+                setTouchedUsername(false);
+            },
+        });
+    };
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -77,6 +111,45 @@ export function Profile() {
             </h1>
 
             <div className="space-y-5">
+                {!isBuiltinAdmin && (
+                    <div className="space-y-3.5">
+                        <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
+                            Username
+                        </h3>
+                        {updateUsername.isError && (
+                            <ErrorBanner error={updateUsername.error} />
+                        )}
+                        <form className="space-y-4" onSubmit={submitUsername}>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="username">New username</Label>
+                                <Input
+                                    id="username"
+                                    autoComplete="username"
+                                    value={username}
+                                    onBlur={() => setTouchedUsername(true)}
+                                    onChange={(e) =>
+                                        setUsername(e.target.value)
+                                    }
+                                />
+                                {touchedUsername && (
+                                    <FieldError message={usernameError} />
+                                )}
+                            </div>
+                            <Button
+                                type="submit"
+                                disabled={
+                                    !canSubmitUsername ||
+                                    updateUsername.isPending
+                                }
+                            >
+                                {updateUsername.isPending
+                                    ? "Saving…"
+                                    : "Change username"}
+                            </Button>
+                        </form>
+                    </div>
+                )}
+
                 <div className="space-y-3.5">
                     <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
                         Password

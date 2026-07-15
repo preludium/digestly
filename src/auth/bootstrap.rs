@@ -50,8 +50,9 @@ async fn ensure_admin(pool: &SqlitePool, admin_password: &str) -> Result<()> {
         }
         None => {
             let id: i64 = sqlx::query(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?) RETURNING id",
+                "INSERT INTO users (username, display_username, password_hash, role) VALUES (?, ?, ?, ?) RETURNING id",
             )
+            .bind(ADMIN_USERNAME)
             .bind(ADMIN_USERNAME)
             .bind(&hash)
             .bind(Role::Admin.as_str())
