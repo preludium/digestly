@@ -75,7 +75,7 @@ The image runs on both ARM64 (Raspberry Pi) and x86-64.
 ## Environment variables
 
 Env vars are **bootstrap-only** - everything else is configured in the UI and stored in the
-database. Only these are read (see `src/config.rs`):
+database. Only these are read (see `backend/src/config.rs`):
 
 | Variable                             | Required | Default                 | Purpose                                                                                                                                                                           |
 | ------------------------------------ | -------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -83,7 +83,7 @@ database. Only these are read (see `src/config.rs`):
 | `ADMIN_PASSWORD`                     | **yes**  | -                       | Bootstraps and re-syncs the built-in `admin` account.                                                                                                                             |
 | `DATA_DIR`                           | no       | `/data`                 | Directory holding `digestly.db`. Compose pins this to the mounted volume.                                                                                                         |
 | `BIND_ADDR`                          | no       | `0.0.0.0:8080`          | Address the HTTP server binds to.                                                                                                                                                 |
-| `STATIC_DIR`                         | no       | `web/dist`              | Directory of built frontend assets (image sets `/app/static`).                                                                                                                    |
+| `STATIC_DIR`                         | no       | `../web/dist`           | Directory of built frontend assets (image sets `/app/static`).                                                                                                                    |
 | `RUST_LOG`                           | no       | `info,digestly=debug`   | `tracing` filter; logs are visible in `docker logs`.                                                                                                                              |
 | `RP_ID`                              | no       | `localhost`             | Passkey/WebAuthn Relying Party ID - the bare hostname passkeys bind to.                                                                                                           |
 | `RP_ORIGIN`                          | no       | `http://localhost:8080` | Passkey origin (full scheme+host). Must be HTTPS in production. Also the OAuth redirect base.                                                                                     |
@@ -336,6 +336,7 @@ The frontend dev server proxies `/api` to the backend, so run both:
 
 ```bash
 # terminal 1 - backend (reads .env; point DATA_DIR at a writable dir like ./data)
+cd backend
 cargo run
 
 # terminal 2 - frontend with hot reload; Vite proxies /api → http://localhost:8080
@@ -347,13 +348,15 @@ npm run dev
 Run the tests:
 
 ```bash
+cd backend
 cargo test
 ```
 
-Test-mode seed command - ingests the bundled `tests/fixtures/*` feeds offline (no network)
+Test-mode seed command - ingests the bundled `backend/tests/fixtures/*` feeds offline (no network)
 into a throwaway DB and prints a sample digest to stdout:
 
 ```bash
+cd backend
 cargo run -- --seed
 ```
 
