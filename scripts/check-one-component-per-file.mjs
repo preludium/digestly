@@ -91,6 +91,16 @@ function maskNonCode(source) {
             continue;
         }
 
+        if (
+            character === "'" &&
+            /[A-Za-z0-9_$]/.test(source[index - 1] ?? "") &&
+            /[A-Za-z0-9_$]/.test(source[index + 1] ?? "")
+        ) {
+            masked += character;
+            index += 1;
+            continue;
+        }
+
         if (character === '"' || character === "'" || character === "`") {
             const quote = character;
             masked += " ";
@@ -152,6 +162,157 @@ function lineNumber(source, offset) {
     return source.slice(0, offset).split("\n").length;
 }
 
+function skipWhitespace(source, offset) {
+    while (/\s/.test(source[offset] ?? "")) offset += 1;
+    return offset;
+}
+
+function startsWord(source, offset, word) {
+    return (
+        source.startsWith(word, offset) &&
+        !/[A-Za-z0-9_$]/.test(source[offset - 1] ?? "") &&
+        !/[A-Za-z0-9_$]/.test(source[offset + word.length] ?? "")
+    );
+}
+
+function scanBalanced(source, start, opening, closing) {
+    if (source[start] !== opening) return null;
+
+    let depth = 1;
+    for (let index = start + 1; index < source.length; index += 1) {
+        if (source[index] === opening) depth += 1;
+        if (source[index] === closing) depth -= 1;
+        if (depth === 0) return index + 1;
+    }
+
+    return null;
+}
+
+function scanGenericParameters(source, start) {
+    if (source[start] !== "<") return null;
+
+    let angleDepth = 1;
+    let otherDepth = 0;
+    for (let index = start + 1; index < source.length; index += 1) {
+        const character = source[index];
+        if (character === "(") otherDepth += 1;
+        if (character === ")") otherDepth -= 1;
+        if (character === "[") otherDepth += 1;
+        if (character === "]") otherDepth -= 1;
+        if (character === "{") otherDepth += 1;
+        if (character === "}") otherDepth -= 1;
+        if (otherDepth !== 0) continue;
+        if (character === "<") angleDepth += 1;
+        if (character === ">" && source[index - 1] !== "=") angleDepth -= 1;
+        if (angleDepth === 0) return index + 1;
+    }
+
+    return null;
+}
+
+function scanUntilTopLevel(source, start, target) {
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    let angleDepth = 0;
+
+    for (let index = start; index < source.length; index += 1) {
+        const character = source[index];
+        if (character === "(") parenDepth += 1;
+        if (character === ")") parenDepth -= 1;
+        if (character === "[") bracketDepth += 1;
+        if (character === "]") bracketDepth -= 1;
+        if (character === "{") braceDepth += 1;
+        if (character === "}") braceDepth -= 1;
+        if (character === "<") angleDepth += 1;
+        if (
+            character === ">" &&
+            source[index - 1] !== "=" &&
+            angleDepth > 0
+        )
+            angleDepth -= 1;
+
+        if (
+            parenDepth === 0 &&
+            bracketDepth === 0 &&
+            braceDepth === 0 &&
+            angleDepth === 0 &&
+            source.startsWith(target, index) &&
+            !(target === "=" && source[index + 1] === ">")
+        ) {
+            return index;
+        }
+    }
+
+    return null;
+}
+
+function isArrowComponent(code, start) {
+    let offset = skipWhitespace(code, start);
+    if (startsWord(code, offset, "async")) {
+        offset = skipWhitespace(code, offset + "async".length);
+    }
+
+    if (code[offset] === "<") {
+        offset = scanGenericParameters(code, offset);
+        if (offset === null) return false;
+        offset = skipWhitespace(code, offset);
+    }
+
+    if (code[offset] === "(") {
+        offset = scanBalanced(code, offset, "(", ")");
+        if (offset === null) return false;
+    } else if (/[A-Za-z_$]/.test(code[offset] ?? "")) {
+        offset += 1;
+        while (/[A-Za-z0-9_$]/.test(code[offset] ?? "")) offset += 1;
+    } else {
+        return false;
+    }
+
+    offset = skipWhitespace(code, offset);
+    if (code[offset] === ":") {
+        offset = scanUntilTopLevel(code, offset + 1, "=>");
+        if (offset === null) return false;
+    }
+
+    return code.startsWith("=>", offset);
+}
+
+function findConstArrowComponents(code) {
+    const components = [];
+    const declarationPattern =
+        /\b(?:export\s+)?const\s+([A-Z][A-Za-z0-9_]*)\b/g;
+
+    for (const match of code.matchAll(declarationPattern)) {
+        let offset = skipWhitespace(code, match.index + match[0].length);
+        if (code[offset] === ":") {
+            offset = scanUntilTopLevel(code, offset + 1, "=");
+            if (offset === null) continue;
+        }
+        if (code[offset] !== "=") continue;
+
+        offset = skipWhitespace(code, offset + 1);
+        if (
+            startsWord(code, offset, "function") ||
+            startsWord(code, offset, "forwardRef") ||
+            startsWord(code, offset, "memo") ||
+            (startsWord(code, offset, "React.forwardRef") ||
+                startsWord(code, offset, "React.memo"))
+        ) {
+            continue;
+        }
+
+        if (isArrowComponent(code, offset)) {
+            components.push({
+                line: lineNumber(code, match.index),
+                name: match[1],
+            });
+        }
+    }
+
+    return components;
+}
+
 function findComponents(source) {
     const code = maskNonCode(source);
     const components = [];
@@ -159,7 +320,6 @@ function findComponents(source) {
         /\b(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Z][A-Za-z0-9_]*)\b/g,
         /\b(?:export\s+(?:default\s+)?)?class\s+([A-Z][A-Za-z0-9_]*)\b/g,
         /\b(?:export\s+)?const\s+([A-Z][A-Za-z0-9_]*)\s*(?::\s*[^=]*?)?=\s*(?:(?:async\s+)?function\b|(?:React\.)?(?:forwardRef|memo)\b)/g,
-        /\b(?:export\s+)?const\s+([A-Z][A-Za-z0-9_]*)\s*(?::\s*[^=]*?)?=\s*(?:async\s+)?(?:<[^;]*>\s*)?(?:\([^)]*?\)|[A-Za-z_$][\w$]*)\s*(?::\s*[^=]*?)?\s*=>/g,
     ];
 
     for (const pattern of patterns) {
@@ -170,6 +330,8 @@ function findComponents(source) {
             });
         }
     }
+
+    components.push(...findConstArrowComponents(code));
 
     return components.sort((a, b) => a.line - b.line || a.name.localeCompare(b.name));
 }
@@ -288,6 +450,11 @@ async function main() {
         if (!components) {
             failures.push(`stale baseline entry: ${path} is not an existing checked file`);
             continue;
+        }
+        if (components.length < allowed) {
+            failures.push(
+                `${path}: baseline allows ${allowed}, but the current tree has only ${components.length}; reduce the baseline allowance`,
+            );
         }
         if (components.length > allowed) {
             failures.push(

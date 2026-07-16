@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noExcessiveLinesPerFile: existing baseline
 import {
     Pencil,
     Plus,

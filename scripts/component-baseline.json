@@ -8,6 +8,8 @@
   "web/src/components/items/ItemCard.tsx": 2,
   "web/src/components/items/ItemPreview.tsx": 5,
   "web/src/components/settings/AddProviderModal.tsx": 3,
+  "web/src/components/settings/AiSettings.tsx": 5,
+  "web/src/components/settings/ConnectedAccounts.tsx": 2,
   "web/src/components/settings/GeneralSettings.tsx": 2,
   "web/src/components/settings/NotificationsSettings.tsx": 2,
   "web/src/components/settings/SettingsTile.tsx": 2,
