@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path backend/Cargo.toml --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --manifest-path backend/Cargo.toml --all-targets --all-features --locked -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path backend/Cargo.toml --all-targets --all-features --locked
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run read-only frontend checks
+        working-directory: web
+        run: pnpm run ci
+
+      - name: Build frontend
+        working-directory: web
+        run: pnpm run build
+
+      - name: Run frontend tests
+        working-directory: web
+        run: pnpm test
+
+  structure:
+    name: Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check component structure
+        run: node scripts/check-one-component-per-file.mjs
+
+  suppression:
+    name: Suppression budget
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check frontend suppression budget
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          budget="$(tr -d '\r\n' < scripts/suppression-budget.txt)"
+          if ! [[ "$budget" =~ ^[0-9]+$ ]]; then
+            echo "suppression budget must contain one integer" >&2
+            exit 1
+          fi
+
+          actual="$( (git grep -h -o -E 'biome-ignore(-all)?' -- web/src || true) | wc -l | tr -d '[:space:]' )"
+          if (( actual > budget )); then
+            echo "frontend suppression count ($actual) exceeds budget ($budget)" >&2
+            exit 1
+          fi
+
+          if [[ -n "$BASE_SHA" ]]; then
+            if git cat-file -e "$BASE_SHA:scripts/suppression-budget.txt" 2>/dev/null; then
+              base_budget="$(git show "$BASE_SHA:scripts/suppression-budget.txt" | tr -d '\r\n')"
+              if ! [[ "$base_budget" =~ ^[0-9]+$ ]]; then
+                echo "base suppression budget must contain one integer" >&2
+                exit 1
+              fi
+
+              base_actual="$( (git grep -h -o -E 'biome-ignore(-all)?' "$BASE_SHA" -- web/src || true) | wc -l | tr -d '[:space:]' )"
+              if (( budget > base_budget && actual > base_actual )); then
+                echo "pull requests may not increase both suppression budget and actual suppressions" >&2
+                exit 1
+              fi
+
+              if (( budget > base_budget )); then
+                echo "pull requests may not increase the suppression budget ($base_budget -> $budget)" >&2
+                exit 1
+              fi
+            else
+              echo "base revision has no suppression budget; checking the new budget against actual suppressions"
+            fi
+          fi
+
+          echo "frontend suppression count ($actual) is within budget ($budget)"
