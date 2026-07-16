@@ -1,0 +1,18 @@
+{
+  "web/src/App.tsx": 3,
+  "web/src/components/AppShell.tsx": 4,
+  "web/src/components/common/AuthCard.tsx": 2,
+  "web/src/components/feeds/AddFeedModal.tsx": 3,
+  "web/src/components/feeds/FeedEditModal.tsx": 2,
+  "web/src/components/items/FilterBar.tsx": 7,
+  "web/src/components/items/ItemCard.tsx": 2,
+  "web/src/components/items/ItemPreview.tsx": 5,
+  "web/src/components/settings/AddProviderModal.tsx": 3,
+  "web/src/components/settings/GeneralSettings.tsx": 2,
+  "web/src/components/settings/NotificationsSettings.tsx": 2,
+  "web/src/components/settings/SettingsTile.tsx": 2,
+  "web/src/routes/AdminUsers.tsx": 3,
+  "web/src/routes/DigestDetail.tsx": 3,
+  "web/src/routes/Health.tsx": 7,
+  "web/src/routes/Manage.tsx": 3
+}
