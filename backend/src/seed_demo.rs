@@ -43,7 +43,8 @@ pub async fn run() -> Result<()> {
     let pool = db::connect(&db_path).await?;
     db::migrate(&pool).await?;
 
-    // A demo user with the standard seeded categories.
+    // A demo user with the protected "Other" catch-all; each feed's own category is
+    // created below from FIXTURES rather than assumed to already exist.
     let user_id: i64 = sqlx::query("INSERT INTO users (username, display_username, password_hash, role) VALUES ('demo', 'demo', 'x', 'user') RETURNING id")
         .fetch_one(&pool)
         .await?
@@ -52,7 +53,7 @@ pub async fn run() -> Result<()> {
 
     let cfg = IngestSettings::default();
     let mut total = 0usize;
-    for (file, feed_url, kind, category) in FIXTURES {
+    for (position, (file, feed_url, kind, category)) in FIXTURES.into_iter().enumerate() {
         let path = format!("{}/{file}", env!("CARGO_MANIFEST_DIR"));
         let bytes = std::fs::read(&path).with_context(|| format!("reading fixture {path}"))?;
         let parsed = parse::parse_feed(&bytes, feed_url, kind, &cfg, Utc::now())?;
@@ -66,12 +67,20 @@ pub async fn run() -> Result<()> {
         .await?
         .get("id");
 
-        let cat_id: i64 = sqlx::query("SELECT id FROM categories WHERE user_id = ? AND name = ?")
-            .bind(user_id)
-            .bind(category)
-            .fetch_one(&pool)
-            .await?
-            .get("id");
+        // Create the feed's category if it does not exist yet, then take its id. The
+        // `DO UPDATE SET name = name` no-op lets RETURNING fire on the conflict path too
+        // (a plain DO NOTHING would return no row for an already-present category).
+        let cat_id: i64 = sqlx::query(
+            "INSERT INTO categories (user_id, name, position) VALUES (?, ?, ?)
+             ON CONFLICT (user_id, name) DO UPDATE SET name = name
+             RETURNING id",
+        )
+        .bind(user_id)
+        .bind(category)
+        .bind((position + 1) as i64)
+        .fetch_one(&pool)
+        .await?
+        .get("id");
         sqlx::query("INSERT INTO subscriptions (user_id, feed_id, category_id) VALUES (?, ?, ?)")
             .bind(user_id)
             .bind(feed_id)
