@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/noExcessiveLinesPerFile: existing baseline
 // Shared API types mirroring the Rust DTOs (prompt.md §10). Keep in sync with `src/routes`.
 
 export type Role = "admin" | "user";

@@ -57,7 +57,6 @@ export function FeedEditModal({
     );
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
     const categories = useCategories();
     const update = useUpdateFeed();

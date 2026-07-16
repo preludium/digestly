@@ -179,7 +179,6 @@ function VideoProviderPicker() {
     );
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function ProviderRow({ provider }: { provider: AiProvider }) {
     const activate = useActivateProvider();
     const remove = useDeleteProvider();
@@ -319,7 +318,6 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
     );
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function GlobalParams() {
     const settings = useAiSettings();
     const update = useUpdateAiSettings();

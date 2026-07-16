@@ -16,7 +16,6 @@ import { formatDateTime } from "@/lib/format";
 import { isCancellation, passkeysSupported } from "@/lib/webauthn";
 
 /** Passkey list + add/rename/delete (prompt.md §9.12). Reused by Profile and Onboarding. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function PasskeyManager({ compact = false }: { compact?: boolean }) {
     const supported = passkeysSupported();
     const list = usePasskeys(supported);

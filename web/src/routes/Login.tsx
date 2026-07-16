@@ -18,7 +18,6 @@ import {
     passkeysSupported,
 } from "@/lib/webauthn";
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Login() {
     const navigate = useNavigate();
     const login = useLogin();

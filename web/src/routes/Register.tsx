@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRegister, useRegistrationStatus } from "@/hooks/useAuth";
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Register() {
     const navigate = useNavigate();
     const register = useRegister();
