@@ -11,7 +11,9 @@
         "test": "vitest run",
         "ci": "biome ci .",
         "format": "biome format --write .",
-        "check": "biome check --write ."
+        "check": "biome check --write .",
+        "e2e": "playwright test",
+        "e2e:ui": "playwright test --ui"
     },
     "dependencies": {
         "@fontsource-variable/fraunces": "5.2.9",
@@ -42,6 +44,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.3",
+        "@playwright/test": "1.61.1",
         "@tailwindcss/vite": "^4.3.2",
         "@types/react": "19.2.17",
         "@types/react-dom": "19.2.3",
