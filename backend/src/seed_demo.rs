@@ -53,7 +53,8 @@ pub async fn run() -> Result<()> {
     let cfg = IngestSettings::default();
     let mut total = 0usize;
     for (file, feed_url, kind, category) in FIXTURES {
-        let bytes = std::fs::read(file).with_context(|| format!("reading fixture {file}"))?;
+        let path = format!("{}/{file}", env!("CARGO_MANIFEST_DIR"));
+        let bytes = std::fs::read(&path).with_context(|| format!("reading fixture {path}"))?;
         let parsed = parse::parse_feed(&bytes, feed_url, kind, &cfg, Utc::now())?;
 
         let feed_id: i64 = sqlx::query(
