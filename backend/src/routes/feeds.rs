@@ -486,6 +486,7 @@ pub(crate) async fn is_subscribed(
 /// `ingest_trigger.notify_one()` after a batch. Shared by OPML import (§9.5), onboarding starter
 /// feeds (§9.11, both `poll_immediately: true`), and OAuth sync (§3, `poll_immediately: false` -
 /// creates the subscription without an immediate backlog poll).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn subscribe_url(
     pool: &SqlitePool,
     cfg: &IngestSettings,
@@ -579,8 +580,7 @@ async fn default_next_fetch_at(
     let digest_cfg = crate::digest::DigestConfig::load(pool).await;
     if digest_cfg.enabled {
         if let Some(next_run) = digest_cfg.next_run_at(now) {
-            let anchor =
-                next_run - chrono::Duration::seconds(crate::digest::PREFETCH_BUFFER_SECS);
+            let anchor = next_run - chrono::Duration::seconds(crate::digest::PREFETCH_BUFFER_SECS);
             if anchor > now {
                 return anchor;
             }

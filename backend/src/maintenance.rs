@@ -158,7 +158,8 @@ mod tests {
         .await
         .unwrap()
         .get("id");
-        let stored = "GPT 5.6 Soul just came out and right now\neveryone&#39;s asking the same thing.";
+        let stored =
+            "GPT 5.6 Soul just came out and right now\neveryone&#39;s asking the same thing.";
         let item: i64 = sqlx::query(
             "INSERT INTO items (feed_id, dedup_hash, transcript_status, transcript_text, published_at)
              VALUES (?, 'v1', 'fetched', ?, datetime('now')) RETURNING id",

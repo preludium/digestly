@@ -596,7 +596,14 @@ mod tests {
         .await;
         // Active provider is unreachable: success proves the video path was used.
         make_provider(&pool, "groq", "http://127.0.0.1:9", "text-model", true).await;
-        let vp = make_provider(&pool, "gemini", &format!("{mock}/openai"), "gemini-vid", false).await;
+        let vp = make_provider(
+            &pool,
+            "gemini",
+            &format!("{mock}/openai"),
+            "gemini-vid",
+            false,
+        )
+        .await;
         set_video_provider(&pool, vp).await;
         let item_id = make_video_item(&pool, "none", None).await;
 
@@ -610,11 +617,12 @@ mod tests {
         assert!(!res.cached);
 
         // The transcript was never lazily fetched (no youtube.com scraping on this path).
-        let row = sqlx::query("SELECT transcript_status, reading_time_secs FROM items WHERE id = ?")
-            .bind(item_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let row =
+            sqlx::query("SELECT transcript_status, reading_time_secs FROM items WHERE id = ?")
+                .bind(item_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(row.get::<String, _>("transcript_status"), "none");
         // Reading time refreshed from the summary (video semantics).
         assert!(row.get::<i64, _>("reading_time_secs") > 0);

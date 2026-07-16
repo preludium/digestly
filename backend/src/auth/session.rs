@@ -62,7 +62,5 @@ pub fn cookie(id: String) -> Cookie<'static> {
 
 /// A removal cookie (path must match the one set above).
 pub fn removal_cookie() -> Cookie<'static> {
-    Cookie::build((SESSION_COOKIE, ""))
-        .path("/")
-        .build()
+    Cookie::build((SESSION_COOKIE, "")).path("/").build()
 }

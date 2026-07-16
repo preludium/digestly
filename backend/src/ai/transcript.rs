@@ -421,7 +421,12 @@ enum FetchIssue {
     Failed,
 }
 
-async fn get_capped(client: &Client, url: &str, timeout_secs: u64, cap: usize) -> Result<String, FetchIssue> {
+async fn get_capped(
+    client: &Client,
+    url: &str,
+    timeout_secs: u64,
+    cap: usize,
+) -> Result<String, FetchIssue> {
     let resp = client
         .get(url)
         .timeout(Duration::from_secs(timeout_secs))
@@ -600,7 +605,8 @@ mod tests {
     fn decodes_youtubes_double_encoded_entities() {
         // Real timedtext bodies carry &amp;#39; - one decode pass leaves a literal &#39; that
         // then shows up verbatim in the UI.
-        let xml = r#"<transcript><text start="0" dur="1">everyone&amp;#39;s asking</text></transcript>"#;
+        let xml =
+            r#"<transcript><text start="0" dur="1">everyone&amp;#39;s asking</text></transcript>"#;
         assert_eq!(flatten_timedtext(xml), "everyone's asking");
     }
 
@@ -610,9 +616,15 @@ mod tests {
         let text = sentence.repeat(20); // ~1400 chars, plenty of sentence boundaries
         let readable = readable_transcript(&text);
         let paras: Vec<&str> = readable.split("\n\n").collect();
-        assert!(paras.len() >= 2, "expected paragraph breaks, got: {readable}");
+        assert!(
+            paras.len() >= 2,
+            "expected paragraph breaks, got: {readable}"
+        );
         for p in &paras {
-            assert!(!p.contains('\n'), "no stray single newlines inside a paragraph");
+            assert!(
+                !p.contains('\n'),
+                "no stray single newlines inside a paragraph"
+            );
             assert!(p.ends_with('.'), "paragraphs break at sentence ends: {p}");
         }
     }
@@ -630,7 +642,8 @@ mod tests {
     #[test]
     fn readable_transcript_reflows_previously_stored_cue_lines() {
         // Shape of transcripts stored before the reflow: one short cue per line, half-decoded.
-        let stored = "GPT 5.6 Soul just came out and right now\neveryone&#39;s asking the same thing.";
+        let stored =
+            "GPT 5.6 Soul just came out and right now\neveryone&#39;s asking the same thing.";
         assert_eq!(
             readable_transcript(stored),
             "GPT 5.6 Soul just came out and right now everyone's asking the same thing."

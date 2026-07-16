@@ -21,13 +21,17 @@ pub async fn run() -> Result<()> {
         let mut stream = TcpStream::connect(&addr)
             .await
             .with_context(|| format!("connect {addr}"))?;
-        let req = format!(
-            "GET /api/health HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\n\r\n"
-        );
-        stream.write_all(req.as_bytes()).await.context("write request")?;
+        let req = format!("GET /api/health HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+        stream
+            .write_all(req.as_bytes())
+            .await
+            .context("write request")?;
 
         let mut buf = Vec::with_capacity(1024);
-        stream.read_to_end(&mut buf).await.context("read response")?;
+        stream
+            .read_to_end(&mut buf)
+            .await
+            .context("read response")?;
         let head = String::from_utf8_lossy(&buf);
         let status_line = head.lines().next().unwrap_or("");
         if status_line.contains(" 200") {
