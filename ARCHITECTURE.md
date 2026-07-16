@@ -11,24 +11,24 @@ There is exactly one deployable service on one port with one database file:
 - The Rust binary (`digestly`) serves the built SPA via `tower-http::ServeDir` with an SPA
   fallback: a real static file is served when it exists, otherwise `index.html` is returned
   with `200` so React Router deep links survive refresh/back. Unknown `/api/*` paths return a
-  `404` JSON, never the SPA shell. See `src/http.rs` (`spa_fallback`).
+  `404` JSON, never the SPA shell. See `backend/src/http.rs` (`spa_fallback`).
 - `/api/*` is matched first (nested router); everything else falls through to the SPA.
 - Storage is a single SQLite file at `${DATA_DIR}/digestly.db` in WAL mode with FTS5.
 - The Docker image is a three-stage build (node build → rust build → `debian-slim` runtime)
   and runs on ARM64 and x86-64.
 
-`src/main.rs` wires it together at boot: load + validate config, create `DATA_DIR`, connect
+`backend/src/main.rs` wires it together at boot: load + validate config, create `DATA_DIR`, connect
 and migrate the DB, bootstrap the built-in admin, derive keys from `SECRET_KEY`, spawn the
 four background tasks (ingestion scheduler, transcript worker, digest scheduler, maintenance),
 and serve with graceful shutdown on SIGTERM.
 
-The transcript worker (`src/ai/transcript_worker.rs`) fetches YouTube captions for newly-ingested
+The transcript worker (`backend/src/ai/transcript_worker.rs`) fetches YouTube captions for newly-ingested
 video items out of band, so a slow caption fetch never holds up feed polling. The ingestion
 scheduler wakes it (a `tokio::sync::Notify`) whenever a YouTube feed poll stores new items;
 otherwise it ticks on its own. It is also where live recordings are dropped from the library -
 `isLiveContent` is only visible in YouTube's player data, which this worker already fetches.
 
-## Module layout (`src/`)
+## Module layout (`backend/src/`)
 
 | Module                  | Responsibility                                                                                                                                     |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -53,7 +53,7 @@ otherwise it ticks on its own. It is also where live recordings are dropped from
 ## Ingestion flow
 
 Ingestion is global and shared - feeds are polled once for all users. A `tokio` background
-scheduler (`src/ingest/scheduler.rs`) runs the loop:
+scheduler (`backend/src/ingest/scheduler.rs`) runs the loop:
 
 1. **Select due feeds.** `next_fetch_at <= now`, not `disabled`, and having **≥1 active
    subscription** (orphan feeds are skipped, and may be GC'd). A claim-lease prevents a slow
@@ -74,7 +74,7 @@ scheduler (`src/ingest/scheduler.rs`) runs the loop:
 **Per-feed isolation:** each feed fetch is a `Result` handled independently with
 `tracing::warn` - one bad feed never crashes the loop.
 
-**Source specifics** (`src/ingest/`):
+**Source specifics** (`backend/src/ingest/`):
 
 - **Reddit:** the `.rss` feed lacks `score`/`comments`, so Digestly uses the JSON endpoint
   (`.../top.json`) for `score`, `num_comments`, `upvote_ratio` with a descriptive
@@ -102,7 +102,7 @@ with _their_ category and settings). The fetched **content** (feeds + items) is 
 or mutates another user's rows, except the admin user-management endpoints (which manage
 accounts only, never feed contents). `AdminUser` rejects non-admins with `403` at the server.
 
-### Schema (`migrations/0001_init.sql`)
+### Schema (`backend/migrations/0001_init.sql`)
 
 **Accounts & auth (global):**
 
@@ -150,17 +150,17 @@ subscription/category/state/summary lookups.
 
 ## Authentication
 
-- **Passwords** are hashed with argon2 (`src/auth/password.rs`); plaintext is never stored or
+- **Passwords** are hashed with argon2 (`backend/src/auth/password.rs`); plaintext is never stored or
   logged.
 - **Sessions** are a signed cookie plus a revocable `sessions` table. The cookie signing key
   is derived from `SECRET_KEY` (SHA-512 → 64-byte `cookie::Key`, `SignedCookieJar`), so
   sessions survive restarts but revoke on logout / logout-all / user-delete.
 - **Roles** are `admin | user`; extractors gate access (`CurrentUser`, `AdminUser`).
-- **Admin bootstrap** (`src/auth/bootstrap.rs`): on every boot, ensure the `admin` user exists
+- **Admin bootstrap** (`backend/src/auth/bootstrap.rs`): on every boot, ensure the `admin` user exists
   with the `ADMIN_PASSWORD` hash (re-synced if the env value changed). The built-in admin
   cannot be deleted or demoted, and the instance always keeps at least one admin.
 - Login errors are generic (no username enumeration).
-- **OAuth import (S4, `src/oauth/`).** Optional per-user linking of YouTube/Reddit to import
+- **OAuth import (S4, `backend/src/oauth/`).** Optional per-user linking of YouTube/Reddit to import
   followed channels/subreddits as RSS feeds. Client credentials are instance-level env
   (`GOOGLE_OAUTH_*` / `REDDIT_OAUTH_*`); a provider's feature is hidden unless both are set. The
   authorization-code flow stores only an **encrypted refresh token** per user (`user_oauth` table,
@@ -171,7 +171,7 @@ subscription/category/state/summary lookups.
   Polling itself is always plain RSS/JSON; the token is used only at sync time. The mapping +
   reconcile + state logic are unit/integration tested; the provider network calls need live
   credentials.
-- **Passkeys / WebAuthn** (`src/auth/passkey.rs`, `src/routes/passkeys.rs`): Digestly is the
+- **Passkeys / WebAuthn** (`backend/src/auth/passkey.rs`, `backend/src/routes/passkeys.rs`): Digestly is the
   Relying Party (`webauthn-rs`), built once at boot from `RP_ID`/`RP_ORIGIN` and held in
   `AppState` (`Option`, so bad config disables the feature without blocking boot). Passwords and
   passkeys are both valid sign-in methods for the same account; the ceremony state between
@@ -184,16 +184,16 @@ subscription/category/state/summary lookups.
 
 ## Pluggable AI
 
-AI is provider-agnostic and admin-global (`src/ai/`):
+AI is provider-agnostic and admin-global (`backend/src/ai/`):
 
-- **`LlmClient` trait, two implementations only** (`src/ai/client.rs`): `OpenAICompatibleClient`
+- **`LlmClient` trait, two implementations only** (`backend/src/ai/client.rs`): `OpenAICompatibleClient`
   (`POST {base_url}/chat/completions`, covers Groq/OpenAI/Gemini/Mistral/Ollama/most custom)
   and `AnthropicClient` (`POST {base_url}/messages`), selected by `api_style`. There is no
   provider-specific code beyond these two clients.
 - **Presets** (Groq / OpenAI / Anthropic / Gemini / Mistral / Ollama) bake in base URL +
   API style; the admin supplies only a key and model. Exposed via `GET /api/ai/presets`.
 - **Write-only keys.** Keys are encrypted at rest with a `SECRET_KEY`-derived
-  ChaCha20-Poly1305 key (`src/ai/crypto.rs`; key = SHA-256 of `SECRET_KEY`, blob =
+  ChaCha20-Poly1305 key (`backend/src/ai/crypto.rs`; key = SHA-256 of `SECRET_KEY`, blob =
   `nonce(12) ‖ ciphertext+tag`). Keys are never returned by any endpoint or logged; rotation
   is delete + recreate.
 - **Shared summary cache.** Summaries are written to `item_summaries` keyed by `(item, model)`
@@ -201,12 +201,12 @@ AI is provider-agnostic and admin-global (`src/ai/`):
   or the user forces a refresh).
 - **SSRF guard** on custom base URLs rejects private/loopback ranges unless allow-private is
   enabled - but intentionally **allows localhost for Ollama** (`provider_type == ollama`).
-- **Token budget guard** (`src/ai/budget.rs`): daily/monthly token budgets checked before a
+- **Token budget guard** (`backend/src/ai/budget.rs`): daily/monthly token budgets checked before a
   call and recorded after; huge source lists are truncated.
 
 ## Video → readable
 
-Video items are rendered as text, not a player (`src/ai/transcript.rs`, `summarize.rs`). The
+Video items are rendered as text, not a player (`backend/src/ai/transcript.rs`, `summarize.rs`). The
 transcript is fetched by the background transcript worker shortly after ingest (and lazily, on
 first summarize, if the worker hasn't got to it); the active provider produces a structured
 readable summary (intro + key-point bullets + takeaways), cached in `item_summaries`. When
@@ -226,10 +226,10 @@ ingested normally and then deleted by the transcript worker once it confirms `is
 
 ## Digest engine
 
-`src/digest/mod.rs`: a global/admin cron config (in `app_settings`) drives per-user digests.
+`backend/src/digest/mod.rs`: a global/admin cron config (in `app_settings`) drives per-user digests.
 
 - `DigestConfig` holds `enabled`, `cron`, `lookback_days`, `timezone`, `categories`,
-  `ai_enabled`. The cron is a restricted 5-field parser (`src/digest/cron.rs`) matched against
+  `ai_enabled`. The cron is a restricted 5-field parser (`backend/src/digest/cron.rs`) matched against
   wall-clock time in the configured timezone (DST-correct), with a `describe()` human preview.
 - `run_all` resolves the active provider + params once, then iterates users. For each user it
   gathers in-window items grouped by their categories (respecting `min_score`), and produces
@@ -248,7 +248,7 @@ stamp guard).
 
 ## ntfy notifications
 
-Per-user (`src/notify`): config lives in `user_notifications` (server URL, topic, encrypted
+Per-user (`backend/src/notify`): config lives in `user_notifications` (server URL, topic, encrypted
 write-only token, priority, per-event toggles). Sending is a plain HTTP `POST {server}/{topic}`
 with Title/Priority/Tags (+ auth) headers, a 10s timeout and one retry; failures are logged and
 surfaced, never fatal. The SSRF guard **allows** the user-configured ntfy host (often
@@ -258,7 +258,7 @@ notifies each at most once per transition.
 
 ## Retention / maintenance
 
-`src/maintenance.rs` runs a periodic purge (every 6h) driven by `retention.max_age_days` and
+`backend/src/maintenance.rs` runs a periodic purge (every 6h) driven by `retention.max_age_days` and
 `retention.max_per_feed` in `app_settings` (both `0` = keep forever). **Starred items are
 never purged** - an item starred by _any_ user survives. Deletes cascade to
 `item_states`/`item_summaries` and keep FTS in sync via the delete trigger.

@@ -17,13 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       pkg-config build-essential ca-certificates libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 # Cache dependency compilation separately from source.
-COPY Cargo.toml Cargo.lock* ./
+COPY backend/Cargo.toml backend/Cargo.lock* ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs \
     && cargo build --release || true \
     && rm -rf src
 # Real source + migrations (sqlx::migrate! embeds ./migrations at compile time).
-COPY migrations ./migrations
-COPY src ./src
+COPY backend/migrations ./migrations
+COPY backend/src ./src
 RUN touch src/main.rs && cargo build --release
 RUN strip target/release/digestly || true
 

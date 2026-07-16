@@ -62,7 +62,7 @@ impl Config {
         let data_dir = PathBuf::from(env::var("DATA_DIR").unwrap_or_else(|_| "/data".to_string()));
         let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
         let static_dir =
-            PathBuf::from(env::var("STATIC_DIR").unwrap_or_else(|_| "web/dist".to_string()));
+            PathBuf::from(env::var("STATIC_DIR").unwrap_or_else(|_| "../web/dist".to_string()));
 
         let rp_id = env::var("RP_ID").unwrap_or_else(|_| "localhost".to_string());
         let rp_origin =
