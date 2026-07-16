@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
  *  Driven by an id, not an item: the id comes from the URL, so a deep-linked article opens before
  *  any card for it is in the cache. `seed` is the clicked card when there is one - it renders the
  *  header instantly instead of waiting on the detail request. */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function ItemPreview({
     itemId,
     seed,
@@ -258,6 +259,7 @@ function ReadingBody({ view }: { view: Item & Partial<ItemDetail> }) {
         return (
             <div
                 className="article-content"
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: existing baseline
                 dangerouslySetInnerHTML={{ __html: view.content_html }}
             />
         );

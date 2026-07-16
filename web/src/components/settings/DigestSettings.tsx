@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 /** Digest engine tab (admin-only, prompt.md §7, §9.7): enable, cron + human preview, look-back,
  *  categories, AI on/off, and Run-now (runs for all users). Server enforces the admin role (§11). */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function DigestSettings() {
     const config = useDigestConfig();
     const update = useUpdateDigestConfig();
@@ -127,6 +128,7 @@ export function DigestSettings() {
                 <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
                     Schedule
                 </h3>
+                {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
                 <label
                     className={cn(
                         SETTINGS_TILE_CLASS,
@@ -199,6 +201,7 @@ export function DigestSettings() {
                     </legend>
                     <div className="flex flex-wrap gap-3">
                         {allNames.map((name) => (
+                            // biome-ignore lint/a11y/noLabelWithoutControl: existing baseline
                             <label
                                 key={name}
                                 className="flex items-center gap-2 text-sm"
@@ -213,6 +216,7 @@ export function DigestSettings() {
                     </div>
                 </fieldset>
 
+                {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
                 <label
                     className={cn(
                         SETTINGS_TILE_CLASS,

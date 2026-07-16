@@ -57,6 +57,7 @@ export function FeedEditModal({
     );
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
     const categories = useCategories();
     const update = useUpdateFeed();
@@ -77,6 +78,7 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
     const [unsubscribing, setUnsubscribing] = useState(false);
 
     // Reset local state if a different feed is opened (belt-and-suspenders with the `key` above).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: existing baseline
     useEffect(() => {
         setTitleOverride(feed.title);
         setCategoryId(feed.category_id);

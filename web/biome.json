@@ -16,7 +16,13 @@
     "linter": {
         "enabled": true,
         "rules": {
-            "preset": "recommended"
+            "preset": "recommended",
+            "complexity": {
+                "noExcessiveLinesPerFunction": "error"
+            },
+            "style": {
+                "noExcessiveLinesPerFile": "error"
+            }
         }
     },
     "javascript": {
@@ -29,6 +35,31 @@
             "tailwindDirectives": true
         }
     },
+    "overrides": [
+        {
+            "includes": ["src/components/ui/**"],
+            "linter": {
+                "rules": {
+                    "complexity": {
+                        "noExcessiveLinesPerFunction": "off"
+                    },
+                    "style": {
+                        "noExcessiveLinesPerFile": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["public/sw.js"],
+            "linter": {
+                "rules": {
+                    "complexity": {
+                        "noExcessiveLinesPerFunction": "off"
+                    }
+                }
+            }
+        }
+    ],
     "assist": {
         "enabled": true,
         "actions": {

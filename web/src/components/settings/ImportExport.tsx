@@ -17,6 +17,7 @@ type Row = OpmlPreviewEntry & { category_edit: string; include: boolean };
 
 /** Import/Export tab (prompt.md §9.7): OPML upload → preview → confirm (each feed needs a category,
  *  default Other) and a one-click export download. Lossless round-trip. */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function ImportExport() {
     const preview = useOpmlPreview();
     const doImport = useOpmlImport();
@@ -137,6 +138,7 @@ export function ImportExport() {
                                             checked={r.include}
                                             onChange={(e) =>
                                                 setRows((rs) =>
+                                                    // biome-ignore lint/style/noNonNullAssertion: existing baseline
                                                     rs!.map((x, j) =>
                                                         j === i
                                                             ? {
@@ -168,6 +170,7 @@ export function ImportExport() {
                                         aria-label="Category"
                                         onChange={(e) =>
                                             setRows((rs) =>
+                                                // biome-ignore lint/style/noNonNullAssertion: existing baseline
                                                 rs!.map((x, j) =>
                                                     j === i
                                                         ? {

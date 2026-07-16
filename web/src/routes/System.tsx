@@ -38,6 +38,7 @@ function navBtn(active: boolean): string {
  *  gated at the route level (App.tsx) same as Users. */
 export function System() {
     const [section, setSection] = useState<SectionId>("ingestion");
+    // biome-ignore lint/style/noNonNullAssertion: existing baseline
     const active = SECTIONS.find((s) => s.id === section)!;
 
     return (

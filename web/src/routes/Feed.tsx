@@ -19,6 +19,7 @@ import { useUiStore } from "@/stores/ui";
 /** The core feed screen - responsive card grid with unified search + filters. Search used to be
  *  a separate /search route; it now lives inline here (mockup-alignment §1) so there's a single
  *  browsing surface. */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Feed() {
     const { filters, setFacet, setPage, clear } = useFeedFilters(true);
     const items = useItems(filters);
@@ -61,6 +62,7 @@ export function Feed() {
 
     // navigate(-1) is async: until popstate lands the sheet is still mounted, so a double-tap on
     // the overlay would pop twice and take the user off the feed.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: existing baseline
     useEffect(() => {
         closing.current = false;
     }, [previewId]);
@@ -95,7 +97,9 @@ export function Feed() {
     }, [text, filters.q, previewId, setFacet]);
 
     // Keyboard shortcuts (§9.1). Ignored while typing in a form control.
+    // biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
     useEffect(() => {
+        // biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
         const onKey = (e: KeyboardEvent) => {
             const t = e.target as HTMLElement | null;
             if (

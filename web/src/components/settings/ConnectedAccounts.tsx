@@ -50,6 +50,7 @@ export function ConnectedAccounts() {
     const [params, setParams] = useSearchParams();
 
     // Surface the OAuth callback result (the server redirects back with ?connected / ?oauth_error).
+    // biome-ignore lint/correctness/useExhaustiveDependencies: existing baseline
     useEffect(() => {
         const connected = params.get("connected");
         const error = params.get("oauth_error");
@@ -98,6 +99,7 @@ export function ConnectedAccounts() {
     );
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function ProviderRow({ conn }: { conn: OAuthConnection }) {
     const categories = useCategories();
     const connect = useOauthConnect();

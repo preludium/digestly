@@ -149,6 +149,7 @@ function Section({ section }: { section: DigestCategorySection }) {
                             </div>
                             <ul className="space-y-1 pl-0.5 text-sm">
                                 {g.items.map((it, i) => (
+                                    // biome-ignore lint/suspicious/noArrayIndexKey: existing baseline
                                     <li key={i}>
                                         {it.url ? (
                                             <a
