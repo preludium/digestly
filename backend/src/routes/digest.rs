@@ -7,6 +7,7 @@
 use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
@@ -19,9 +20,38 @@ use crate::http::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/digest", get(list_digests))
+        .route("/digest/schedule", get(get_schedule))
         .route("/digest/config", get(get_config).put(put_config))
         .route("/digest/run", post(run_digest))
         .route("/digest/:id", get(get_digest))
+}
+
+// ---------------------------------------------------------------------------
+// Schedule (authenticated)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ScheduleDto {
+    enabled: bool,
+    description: String,
+    timezone: String,
+    next_run_at: Option<chrono::DateTime<Utc>>,
+}
+
+/// `GET /api/digest/schedule` - public schedule facts for authenticated users.
+async fn get_schedule(_user: CurrentUser, State(state): State<AppState>) -> Json<ScheduleDto> {
+    let cfg = DigestConfig::load(&state.pool).await;
+    let description = digest::cron::Cron::parse(&cfg.cron)
+        .map(|cron| cron.describe())
+        .unwrap_or_else(|| "invalid schedule".to_string());
+    let next_run_at = cfg.enabled.then(|| cfg.next_run_at(Utc::now())).flatten();
+
+    Json(ScheduleDto {
+        enabled: cfg.enabled,
+        description,
+        timezone: cfg.timezone,
+        next_run_at,
+    })
 }
 
 // ---------------------------------------------------------------------------

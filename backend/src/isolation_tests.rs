@@ -1717,6 +1717,36 @@ async fn digest_run_accepts_a_custom_lookback_override() {
 }
 
 #[tokio::test]
+async fn regular_users_can_read_the_digest_schedule_but_not_its_config() {
+    let (app, pool, _d) = test_app().await;
+    let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
+
+    let schedule = call(&app, "GET", "/api/digest/schedule", None, Some(&alice_c)).await;
+    assert_eq!(schedule.status, StatusCode::OK);
+    assert_eq!(schedule.body.as_object().unwrap().len(), 4);
+    assert!(schedule.body.get("enabled").is_some());
+    assert!(schedule.body.get("description").is_some());
+    assert!(schedule.body.get("timezone").is_some());
+    assert!(schedule.body.get("next_run_at").is_some());
+    assert_eq!(schedule.body["enabled"], true);
+    assert_eq!(schedule.body["timezone"], "UTC");
+    assert!(schedule.body["description"].as_str().is_some());
+    assert!(schedule.body["next_run_at"].as_str().is_some());
+
+    let config = call(&app, "GET", "/api/digest/config", None, Some(&alice_c)).await;
+    assert_eq!(config.status, StatusCode::FORBIDDEN);
+
+    sqlx::query("INSERT INTO app_settings (key, value) VALUES ('digest.enabled', 'false')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let disabled = call(&app, "GET", "/api/digest/schedule", None, Some(&alice_c)).await;
+    assert_eq!(disabled.status, StatusCode::OK);
+    assert_eq!(disabled.body["enabled"], false);
+    assert!(disabled.body["next_run_at"].is_null());
+}
+
+#[tokio::test]
 async fn notifications_config_never_returns_the_token() {
     let (app, _pool, _d) = test_app().await;
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
