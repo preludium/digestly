@@ -106,7 +106,7 @@ jobs:
             exit 1
           fi
 
-          actual="$( (git grep -h -o -E 'biome-ignore(-all)?' -- web/src || true) | wc -l | tr -d '[:space:]' )"
+          actual="$( (git grep -h -o -E 'biome-ignore(-all)?' -- 'web/**' ':(exclude)web/dist/**' ':(exclude)web/node_modules/**' || true) | wc -l | tr -d '[:space:]' )"
           if (( actual > budget )); then
             echo "frontend suppression count ($actual) exceeds budget ($budget)" >&2
             exit 1
@@ -125,9 +125,9 @@ jobs:
                 exit 1
               fi
 
-              added_suppressions="$(git diff --unified=0 "$BASE_SHA" -- web/src | grep -E '^\+[^+].*biome-ignore(-all)?' || true)"
+              added_suppressions="$(git diff --unified=0 "$BASE_SHA" -- 'web/**' ':(exclude)web/dist/**' ':(exclude)web/node_modules/**' | grep -E '^\+[^+].*biome-ignore(-all)?' || true)"
               if [[ -n "$added_suppressions" ]]; then
-                echo "pull requests may not add biome-ignore directives under web/src:" >&2
+                echo "pull requests may not add biome-ignore directives under web/:" >&2
                 echo "$added_suppressions" >&2
                 exit 1
               fi
