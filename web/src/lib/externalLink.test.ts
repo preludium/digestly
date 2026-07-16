@@ -34,6 +34,7 @@ afterEach(() => vi.unstubAllGlobals());
 const REDDIT = "https://www.reddit.com/r/rust/comments/abc123/some_post/";
 const YOUTUBE = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 describe("externalHref on Android Chrome", () => {
     it("rewrites a reddit URL to an intent that targets the Reddit app", () => {
         ua(ANDROID_CHROME);

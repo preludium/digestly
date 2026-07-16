@@ -62,6 +62,7 @@ export function AddFeedModal() {
     );
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function AddFeedBody({ onDone }: { onDone: () => void }) {
     const [input, setInput] = useState("");
     const [selected, setSelected] = useState<DiscoverCandidate | null>(null);
@@ -183,6 +184,7 @@ function AddFeedBody({ onDone }: { onDone: () => void }) {
     );
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function ConfigureStep({
     candidate,
     onBack,

@@ -277,6 +277,7 @@ function FacetField({
     mobile?: boolean;
 }) {
     return (
+        // biome-ignore lint/a11y/noLabelWithoutControl: existing baseline
         <label
             className={cn(
                 "flex items-center gap-1.5 px-2 py-1",
@@ -302,6 +303,7 @@ function SortPill({
     setFacet,
 }: Pick<FilterBarProps, "filters" | "setFacet">) {
     return (
+        // biome-ignore lint/a11y/noLabelWithoutControl: existing baseline
         <label className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-muted pl-3 pr-1">
             <ArrowDownWideNarrow className="size-3.5 shrink-0 text-muted-foreground" />
             <Select

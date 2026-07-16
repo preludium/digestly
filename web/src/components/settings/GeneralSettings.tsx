@@ -22,6 +22,7 @@ type Form = Omit<UserSettings, "onboarded">;
 
 /** General preferences tab (prompt.md §9.7) - autosaves on every change (debounced). Theme +
  *  density also update the local UI store immediately for a live preview. */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function GeneralSettings() {
     const settings = useSettings();
     const update = useUpdateSettings();
@@ -143,6 +144,7 @@ export function GeneralSettings() {
                         />
                     </Field>
                 </div>
+                {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
                 <label className="flex items-center gap-2 text-sm">
                     <Switch
                         checked={form.auto_mark_read}

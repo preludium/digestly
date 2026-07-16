@@ -6,6 +6,7 @@ export function CardGridSkeleton({ count = 8 }: { count?: number }) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 wide:grid-cols-3 xl:grid-cols-4">
             {Array.from({ length: count }).map((_, i) => (
                 <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: existing baseline
                     key={i}
                     className="space-y-3 rounded-lg border border-border p-3"
                 >

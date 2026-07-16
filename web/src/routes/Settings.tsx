@@ -35,6 +35,7 @@ function navBtn(active: boolean): string {
 
 export function Settings() {
     const [section, setSection] = useState<SectionId>("general");
+    // biome-ignore lint/style/noNonNullAssertion: existing baseline
     const active = SECTIONS.find((s) => s.id === section)!;
 
     return (

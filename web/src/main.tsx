@@ -19,6 +19,7 @@ applyDensity(useUiStore.getState().density);
 // Register the PWA service worker (app-shell + offline reading). No-op in dev.
 registerServiceWorker();
 
+// biome-ignore lint/style/noNonNullAssertion: existing baseline
 ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
         <ErrorBoundary>

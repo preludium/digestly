@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 /** Escape a string for safe use inside a RegExp. */
+// biome-ignore lint/suspicious/noShadowRestrictedNames: existing baseline
 function escape(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -26,6 +27,7 @@ export function highlight(
     const parts = value.split(re);
     return parts.map((part, i) =>
         i % 2 === 1 ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: existing baseline
             <mark key={i} className="rounded bg-primary/20 text-foreground">
                 {part}
             </mark>

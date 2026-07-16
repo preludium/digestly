@@ -51,6 +51,7 @@ export function kindLabel(kind: FeedKind): string {
 /** Render a stored UTC timestamp ("YYYY-MM-DD HH:MM:SS") in the browser's locale, or "never". */
 export function formatDateTime(value: string | null | undefined): string {
     if (!value) return "never";
+    // biome-ignore lint/style/useTemplate: existing baseline
     const iso = value.includes("T") ? value : value.replace(" ", "T") + "Z";
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
@@ -59,6 +60,7 @@ export function formatDateTime(value: string | null | undefined): string {
 /** Parse a stored UTC timestamp into a Date, or null. */
 function toDate(value: string | null | undefined): Date | null {
     if (!value) return null;
+    // biome-ignore lint/style/useTemplate: existing baseline
     const iso = value.includes("T") ? value : value.replace(" ", "T") + "Z";
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? null : d;

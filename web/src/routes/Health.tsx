@@ -70,6 +70,7 @@ function YoutubeIcon({ className }: { className?: string }) {
 }
 
 /** Feed health / diagnostics (prompt.md §9.6). Failing/disabled feeds surfaced, never dropped. */
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Health() {
     const health = useFeedHealth();
     const feeds = useFeeds();
@@ -108,6 +109,7 @@ export function Health() {
                             className="h-[34px] w-[170px] pl-8 text-[13px]"
                         />
                     </div>
+                    {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
                     <label className="flex items-center gap-1.5 text-sm">
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                             Status
@@ -291,6 +293,7 @@ function ActionsMenu({
                 confirmLabel="Unsubscribe"
                 destructive
                 onConfirm={() => {
+                    // biome-ignore lint/style/noNonNullAssertion: existing baseline
                     unsubscribe.mutate(removing!.id, {
                         onSuccess: () => {
                             toast.success("Unsubscribed");

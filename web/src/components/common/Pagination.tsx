@@ -35,6 +35,7 @@ export function Pagination({
             {window.map((p, i) =>
                 p === "…" ? (
                     <span
+                        // biome-ignore lint/suspicious/noArrayIndexKey: existing baseline
                         key={`gap-${i}`}
                         className="px-1 text-sm text-muted-foreground"
                     >

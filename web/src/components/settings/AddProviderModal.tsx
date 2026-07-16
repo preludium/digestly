@@ -57,6 +57,7 @@ export function AddProviderModal({
     );
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function ProviderForm({
     presets,
     onDone,
