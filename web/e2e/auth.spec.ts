@@ -14,6 +14,10 @@ test("registers through the UI, logs out, and logs back in", async ({
     await page.getByRole("button", { name: "Create account" }).click();
     await expect(page).toHaveURL("/");
 
+    // A brand-new account lands on the first-run onboarding overlay (a full-screen layer that
+    // intercepts pointer events). Dismiss it the way a real user would before touching the app.
+    await page.getByRole("button", { name: "Get started" }).click();
+
     await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("menuitem", { name: "Log out" }).click();
     await expect(page).toHaveURL("/login");

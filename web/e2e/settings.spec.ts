@@ -9,7 +9,7 @@ test("General settings: timezone autosaves and persists after reload", async ({
     await registerUser(page.request);
 
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "General" }).click();
+    await page.getByRole("button", { name: "General" }).click();
 
     // Arm the listener before triggering the fill so the debounced autosave response
     // cannot be missed even if the debounce interval is very short.
@@ -27,7 +27,7 @@ test("General settings: timezone autosaves and persists after reload", async ({
     // mirrored in types.ts causes the frontend to read undefined here and the input
     // comes back empty - this is the drift-catcher assertion.
     await page.reload();
-    await page.getByRole("tab", { name: "General" }).click();
+    await page.getByRole("button", { name: "General" }).click();
 
     await expect(page.getByPlaceholder("Europe/Warsaw")).toHaveValue(
         "America/New_York",

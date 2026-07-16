@@ -8,8 +8,10 @@ test("admin manages the Open registration setting", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
     await expect(page.getByText("All accounts", { exact: true })).toBeVisible();
     await expect(page.getByRole("table")).toBeVisible();
+    // The built-in admin appears in both the Username and Role ("admin") columns, so match the row
+    // rather than a bare cell to avoid a strict-mode collision.
     await expect(
-        page.getByRole("cell", { name: ADMIN.username, exact: true }),
+        page.getByRole("row").filter({ hasText: ADMIN.username }),
     ).toBeVisible();
 
     // The "Open registration" Switch has no aria-label (approved architecture), so it's scoped by

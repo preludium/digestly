@@ -44,6 +44,19 @@ async function ok(response: {
     }
 }
 
+/**
+ * PUT /api/settings to mark the session's user onboarded. The first-run onboarding overlay
+ * (App.tsx gates it on `!settings.onboarded`) is a full-screen `fixed inset-0` layer that
+ * intercepts pointer events, so every UI-driving spec must clear it first. Marking it through the
+ * API keeps the setup out of the UI and out of each spec's body.
+ */
+export async function markOnboarded(request: APIRequestContext): Promise<void> {
+    const response = await request.put(`${APP_URL}/api/settings`, {
+        data: { onboarded: true },
+    });
+    await ok(response);
+}
+
 /** POST /api/auth/register - auto-logs in and sets the `hf_session` cookie in the caller's jar. */
 export async function registerUser(
     request: APIRequestContext,
@@ -55,10 +68,11 @@ export async function registerUser(
         data: { username, password },
     });
     await ok(response);
+    await markOnboarded(request);
     return { username, password };
 }
 
-/** POST /api/auth/login. */
+/** POST /api/auth/login, then clear the onboarding overlay so the session can drive the UI. */
 export async function loginAs(
     request: APIRequestContext,
     username: string,
@@ -68,6 +82,7 @@ export async function loginAs(
         data: { username, password },
     });
     await ok(response);
+    await markOnboarded(request);
 }
 
 /** GET /api/categories, first id. Fresh users get default categories seeded on register. */
