@@ -5,6 +5,7 @@ import type {
     DigestDetailData,
     DigestListItem,
     DigestRunSummary,
+    DigestSchedule,
     PutDigestConfig,
 } from "@/lib/types";
 
@@ -12,6 +13,7 @@ import type {
 
 const LIST_KEY = ["digests"];
 const CONFIG_KEY = ["digest", "config"];
+const SCHEDULE_KEY = ["digest", "schedule"];
 
 export function useDigests() {
     return useQuery<DigestListItem[]>({
@@ -31,6 +33,14 @@ export function useDigestConfig() {
     return useQuery<DigestConfig>({
         queryKey: CONFIG_KEY,
         queryFn: () => api.get<DigestConfig>("/digest/config"),
+    });
+}
+
+export function useDigestSchedule() {
+    return useQuery<DigestSchedule>({
+        queryKey: SCHEDULE_KEY,
+        queryFn: () => api.get<DigestSchedule>("/digest/schedule"),
+        refetchInterval: 60_000,
     });
 }
 

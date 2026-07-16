@@ -284,6 +284,14 @@ export interface DigestConfig {
 
 export type PutDigestConfig = Omit<DigestConfig, "schedule_preview">;
 
+/** Read-only global digest schedule, available to every authenticated user. */
+export interface DigestSchedule {
+    enabled: boolean;
+    description: string;
+    timezone: string;
+    next_run_at: string | null;
+}
+
 export interface DigestListItem {
     id: number;
     created_at: string;
