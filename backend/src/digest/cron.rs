@@ -67,6 +67,18 @@ impl Cron {
     /// A best-effort human description for the UI ("Every Monday at 09:00"), falling back to a
     /// generic phrasing for expressions this simple describer doesn't specialise.
     pub fn describe(&self) -> String {
+        if let (Field::Values(minutes), Field::Values(hours), Field::Any, Field::Any, Field::Any) =
+            (&self.minute, &self.hour, &self.dom, &self.month, &self.dow)
+        {
+            if minutes.len() == 1 && hours.len() > 1 {
+                let times: Vec<String> = hours
+                    .iter()
+                    .map(|hour| format!("{hour:02}:{:02}", minutes[0]))
+                    .collect();
+                return format!("daily at {}", times.join(" and "));
+            }
+        }
+
         let time = match (&self.minute, &self.hour) {
             (Field::Values(m), Field::Values(h)) if m.len() == 1 && h.len() == 1 => {
                 format!("{:02}:{:02}", h[0], m[0])
@@ -229,6 +241,18 @@ mod tests {
         let every15 = Cron::parse("*/15 * * * *").unwrap();
         assert!(every15.matches(&at(Tz::UTC, 2024, 1, 1, 3, 45)));
         assert!(!every15.matches(&at(Tz::UTC, 2024, 1, 1, 3, 46)));
+    }
+
+    #[test]
+    fn describes_daily_list_hour_schedules() {
+        assert_eq!(
+            Cron::parse("0 7,15 * * *").unwrap().describe(),
+            "daily at 07:00 and 15:00"
+        );
+        assert_eq!(
+            Cron::parse("0 7,15 * * 1").unwrap().describe(),
+            "On schedule (custom cron)"
+        );
     }
 
     #[test]
