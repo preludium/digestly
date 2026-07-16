@@ -16,13 +16,18 @@ pub async fn spent(pool: &SqlitePool) -> Result<(i64, i64)> {
     let now = Utc::now();
     let day = now.format("%Y-%m-%d").to_string();
     let month = now.format("%Y-%m").to_string();
-    Ok((read_period(pool, DAY_KEY, &day).await, read_period(pool, MONTH_KEY, &month).await))
+    Ok((
+        read_period(pool, DAY_KEY, &day).await,
+        read_period(pool, MONTH_KEY, &month).await,
+    ))
 }
 
 /// Reject the call up front if either budget is already exhausted (prompt.md §6). Returns a clear,
 /// key-free message for the on-demand error path.
 pub async fn check(pool: &SqlitePool, params: &AiParams) -> Result<(), String> {
-    let (day, month) = spent(pool).await.map_err(|_| "could not read AI token usage".to_string())?;
+    let (day, month) = spent(pool)
+        .await
+        .map_err(|_| "could not read AI token usage".to_string())?;
     if params.daily_token_budget > 0 && day >= params.daily_token_budget {
         return Err(format!(
             "daily AI token budget exhausted ({day}/{} tokens used)",

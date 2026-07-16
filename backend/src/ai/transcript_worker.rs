@@ -52,7 +52,10 @@ pub fn spawn(
                 _ = tokio::time::sleep(TICK) => {}
             }
             if let Some(remaining) = backoff.remaining(Instant::now()) {
-                debug!(remaining_secs = remaining.as_secs(), "still cooling down after a rate-limit hit, skipping tick");
+                debug!(
+                    remaining_secs = remaining.as_secs(),
+                    "still cooling down after a rate-limit hit, skipping tick"
+                );
                 continue;
             }
             match tick(&pool, &client).await {
@@ -82,7 +85,11 @@ impl RateLimitBackoff {
     fn record_hit(&mut self, now: Instant) {
         self.consecutive_hits += 1;
         let secs = crate::ingest::backoff_secs(self.consecutive_hits, 0.0);
-        info!(consecutive_hits = self.consecutive_hits, cooldown_secs = secs, "backing off after rate-limit");
+        info!(
+            consecutive_hits = self.consecutive_hits,
+            cooldown_secs = secs,
+            "backing off after rate-limit"
+        );
         self.until = Some(now + Duration::from_secs(secs as u64));
     }
 
@@ -106,7 +113,8 @@ async fn tick(pool: &SqlitePool, client: &Client) -> anyhow::Result<bool> {
     }
     let total = due.len();
     info!(count = total, "fetching transcripts");
-    let (mut fetched, mut unavailable, mut removed_live, mut rate_limited) = (0u32, 0u32, 0u32, 0u32);
+    let (mut fetched, mut unavailable, mut removed_live, mut rate_limited) =
+        (0u32, 0u32, 0u32, 0u32);
     for (i, item) in due.iter().enumerate() {
         if i > 0 {
             tokio::time::sleep(HOST_DELAY).await;

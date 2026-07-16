@@ -18,9 +18,11 @@ pub async fn run(pool: &SqlitePool, admin_password: &str) -> Result<()> {
 
 /// Seed admin-only global defaults if absent (open registration on by default).
 async fn ensure_default_settings(pool: &SqlitePool) -> Result<()> {
-    sqlx::query("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allow_registration', 'true')")
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('allow_registration', 'true')",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -37,14 +39,12 @@ async fn ensure_admin(pool: &SqlitePool, admin_password: &str) -> Result<()> {
     match existing {
         Some(row) => {
             let id: i64 = row.get("id");
-            sqlx::query(
-                "UPDATE users SET password_hash = ?, role = ?, disabled = 0 WHERE id = ?",
-            )
-            .bind(&hash)
-            .bind(Role::Admin.as_str())
-            .bind(id)
-            .execute(pool)
-            .await?;
+            sqlx::query("UPDATE users SET password_hash = ?, role = ?, disabled = 0 WHERE id = ?")
+                .bind(&hash)
+                .bind(Role::Admin.as_str())
+                .bind(id)
+                .execute(pool)
+                .await?;
             seed_default_categories(pool, id).await?;
             info!("admin account present; password hash re-synced from ADMIN_PASSWORD");
         }

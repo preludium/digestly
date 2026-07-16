@@ -356,7 +356,8 @@ mod tests {
               <title>ThePrimeagen</title>
               <link rel="alternate" href="https://www.youtube.com/channel/UCkVfrGwV-iG9bSsgCbrNPxQ"/>
             </feed>"#;
-        let feed_url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCkVfrGwV-iG9bSsgCbrNPxQ";
+        let feed_url =
+            "https://www.youtube.com/feeds/videos.xml?channel_id=UCkVfrGwV-iG9bSsgCbrNPxQ";
         let c = youtube_candidate_from_body(
             xml,
             feed_url,

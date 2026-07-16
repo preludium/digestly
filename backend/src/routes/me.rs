@@ -23,12 +23,13 @@ pub fn routes() -> Router<AppState> {
 async fn get_me(State(state): State<AppState>, user: CurrentUser) -> ApiResult<Json<UserDto>> {
     // CurrentUser.username is the normalized (canonical) form because ADMIN_USERNAME guards
     // depend on it. Re-select the display value for the response DTO.
-    let username: String =
-        sqlx::query("SELECT COALESCE(display_username, username) AS username FROM users WHERE id = ?")
-            .bind(user.id)
-            .fetch_one(&state.pool)
-            .await?
-            .get("username");
+    let username: String = sqlx::query(
+        "SELECT COALESCE(display_username, username) AS username FROM users WHERE id = ?",
+    )
+    .bind(user.id)
+    .fetch_one(&state.pool)
+    .await?
+    .get("username");
     Ok(Json(UserDto {
         id: user.id,
         username,
@@ -60,7 +61,13 @@ async fn patch_me(
         rename_username(&state, &user, u).await?;
     }
     if let Some(new_password) = body.new_password.as_deref() {
-        change_password_for(&state, user.id, body.current_password.as_deref(), new_password).await?;
+        change_password_for(
+            &state,
+            user.id,
+            body.current_password.as_deref(),
+            new_password,
+        )
+        .await?;
     }
     Ok(Json(load_me_dto(&state, user.id).await?))
 }

@@ -84,9 +84,7 @@ async fn register(
     .await;
     let id: i64 = match insert {
         Ok(row) => row.get("id"),
-        Err(sqlx::Error::Database(e))
-            if e.kind() == sqlx::error::ErrorKind::UniqueViolation =>
-        {
+        Err(sqlx::Error::Database(e)) if e.kind() == sqlx::error::ErrorKind::UniqueViolation => {
             return Err(AppError::Conflict("username already taken".into()));
         }
         Err(e) => return Err(e.into()),

@@ -103,6 +103,7 @@ pub enum TokenUpdate {
 
 /// Upsert the user's ntfy config. Server URL is validated (http(s) + host) but private hosts are
 /// allowed (ntfy is often local). The token is write-only.
+#[allow(clippy::too_many_arguments)]
 pub async fn save(
     pool: &SqlitePool,
     enc_key: &[u8; 32],

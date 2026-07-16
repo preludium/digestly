@@ -108,10 +108,14 @@ async fn log_500(request: Request, next: Next) -> Response {
 
 /// Allowed cross-origin values used by the Tauri Android/desktop shell.
 fn tauri_origins() -> Vec<HeaderValue> {
-    ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]
-        .into_iter()
-        .filter_map(|o| HeaderValue::from_str(o).ok())
-        .collect()
+    [
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ]
+    .into_iter()
+    .filter_map(|o| HeaderValue::from_str(o).ok())
+    .collect()
 }
 
 /// Serve a real static file if it exists; otherwise return `index.html` (200) for GET
@@ -140,6 +144,10 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "db_ok": db_ok,
     }));
-    let code = if db_ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    let code = if db_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
     (code, body)
 }

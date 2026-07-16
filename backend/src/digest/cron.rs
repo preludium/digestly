@@ -51,7 +51,8 @@ impl Cron {
         // chrono weekday: Mon=0..Sun=6 via num_days_from_monday; convert to cron Sun=0..Sat=6.
         let dow = dt.weekday().num_days_from_sunday();
 
-        if !self.minute.contains(minute) || !self.hour.contains(hour) || !self.month.contains(month) {
+        if !self.minute.contains(minute) || !self.hour.contains(hour) || !self.month.contains(month)
+        {
             return false;
         }
         match (&self.dom, &self.dow) {
@@ -97,7 +98,10 @@ impl Cron {
     /// minute-by-minute, capped at ~2 years so a schedule that can never match (e.g. day-of-month
     /// 31 combined with a month restriction that never has one) returns `None` instead of looping
     /// forever.
-    pub fn next_after<Tz: chrono::TimeZone>(&self, after: &chrono::DateTime<Tz>) -> Option<chrono::DateTime<Tz>> {
+    pub fn next_after<Tz: chrono::TimeZone>(
+        &self,
+        after: &chrono::DateTime<Tz>,
+    ) -> Option<chrono::DateTime<Tz>> {
         const MAX_MINUTES: i64 = 366 * 24 * 60 * 2;
         let mut candidate = after.clone() + chrono::Duration::minutes(1);
         candidate -= chrono::Duration::seconds(candidate.second() as i64)
@@ -155,7 +159,8 @@ impl Field {
         Some(match f {
             Field::Any => Field::Any,
             Field::Values(vs) => {
-                let mut norm: Vec<u32> = vs.into_iter().map(|v| if v == 7 { 0 } else { v }).collect();
+                let mut norm: Vec<u32> =
+                    vs.into_iter().map(|v| if v == 7 { 0 } else { v }).collect();
                 norm.sort_unstable();
                 norm.dedup();
                 Field::Values(norm)
@@ -200,16 +205,27 @@ mod tests {
         // 2024-01-01 was a Monday.
         assert!(c.matches(&at(Tz::UTC, 2024, 1, 1, 9, 0)));
         assert!(!c.matches(&at(Tz::UTC, 2024, 1, 1, 9, 1)), "wrong minute");
-        assert!(!c.matches(&at(Tz::UTC, 2024, 1, 2, 9, 0)), "Tuesday, not Monday");
+        assert!(
+            !c.matches(&at(Tz::UTC, 2024, 1, 2, 9, 0)),
+            "Tuesday, not Monday"
+        );
         assert_eq!(c.describe(), "Every Monday at 09:00");
     }
 
     #[test]
     fn daily_and_lists_and_steps() {
-        assert!(Cron::parse("30 6 * * *").unwrap().matches(&at(Tz::UTC, 2024, 3, 10, 6, 30)));
+        assert!(Cron::parse("30 6 * * *")
+            .unwrap()
+            .matches(&at(Tz::UTC, 2024, 3, 10, 6, 30)));
         let weekdays = Cron::parse("0 8 * * 1-5").unwrap();
-        assert!(weekdays.matches(&at(Tz::UTC, 2024, 1, 1, 8, 0)), "Monday in 1-5");
-        assert!(!weekdays.matches(&at(Tz::UTC, 2024, 1, 6, 8, 0)), "Saturday not in 1-5");
+        assert!(
+            weekdays.matches(&at(Tz::UTC, 2024, 1, 1, 8, 0)),
+            "Monday in 1-5"
+        );
+        assert!(
+            !weekdays.matches(&at(Tz::UTC, 2024, 1, 6, 8, 0)),
+            "Saturday not in 1-5"
+        );
         let every15 = Cron::parse("*/15 * * * *").unwrap();
         assert!(every15.matches(&at(Tz::UTC, 2024, 1, 1, 3, 45)));
         assert!(!every15.matches(&at(Tz::UTC, 2024, 1, 1, 3, 46)));
@@ -249,7 +265,10 @@ mod tests {
         );
         // Sub-minute precision on `after` is truncated away, not skipped past.
         let with_seconds = at(Tz::UTC, 2024, 1, 1, 4, 59) + chrono::Duration::seconds(30);
-        assert_eq!(daily.next_after(&with_seconds), Some(at(Tz::UTC, 2024, 1, 1, 5, 0)));
+        assert_eq!(
+            daily.next_after(&with_seconds),
+            Some(at(Tz::UTC, 2024, 1, 1, 5, 0))
+        );
 
         let weekly_mon = Cron::parse("0 9 * * 1").unwrap();
         // 2024-01-01 is a Monday; asking right after that fire jumps a full week forward.
