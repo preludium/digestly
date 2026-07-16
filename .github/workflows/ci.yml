@@ -71,6 +71,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -78,6 +80,8 @@ jobs:
           node-version: "20"
 
       - name: Check component structure
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node scripts/check-one-component-per-file.mjs
 
   suppression:
@@ -116,14 +120,15 @@ jobs:
                 exit 1
               fi
 
-              base_actual="$( (git grep -h -o -E 'biome-ignore(-all)?' "$BASE_SHA" -- web/src || true) | wc -l | tr -d '[:space:]' )"
-              if (( budget > base_budget && actual > base_actual )); then
-                echo "pull requests may not increase both suppression budget and actual suppressions" >&2
+              if (( budget > base_budget )); then
+                echo "pull requests may not increase the suppression budget ($base_budget -> $budget)" >&2
                 exit 1
               fi
 
-              if (( budget > base_budget )); then
-                echo "pull requests may not increase the suppression budget ($base_budget -> $budget)" >&2
+              added_suppressions="$(git diff --unified=0 "$BASE_SHA" -- web/src | grep -E '^\+[^+].*biome-ignore(-all)?' || true)"
+              if [[ -n "$added_suppressions" ]]; then
+                echo "pull requests may not add biome-ignore directives under web/src:" >&2
+                echo "$added_suppressions" >&2
                 exit 1
               fi
             else
