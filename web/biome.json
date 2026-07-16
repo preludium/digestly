@@ -10,7 +10,9 @@
             "**",
             "!!**/dist",
             "!!**/node_modules",
-            "!!src/components/ui"
+            "!!src/components/ui",
+            "!!**/playwright-report",
+            "!!**/test-results"
         ]
     },
     "formatter": {

@@ -22,6 +22,11 @@ web/dist/
 web/.vite/
 *.tsbuildinfo
 
+# Playwright e2e (web/)
+web/test-results/
+web/playwright-report/
+backend/.e2e-data/
+
 # Node (root, if ever used)
 node_modules/
 
