@@ -23,7 +23,6 @@ import { cn } from "@/lib/utils";
 
 const ADMIN = "admin";
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Profile() {
     const navigate = useNavigate();
     const { data: me } = useMe();

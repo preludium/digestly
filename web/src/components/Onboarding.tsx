@@ -18,7 +18,6 @@ import { useUiStore } from "@/stores/ui";
 /** First-run onboarding (prompt.md §9.11) - shown once per new account (gated on the `onboarded`
  *  setting). Optional starter feeds + timezone; fully skippable. Finishing/skipping sets
  *  `onboarded=true` so it never shows again. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Onboarding() {
     const settings = useSettings();
     const update = useUpdateSettings();

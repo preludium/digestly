@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/noExcessiveLinesPerFile: existing baseline
 import {
     ChevronDown,
     MoreVertical,
@@ -52,7 +51,6 @@ import { useUiStore } from "@/stores/ui";
 import { sortCategoriesOtherLast } from "./manage.helpers";
 
 /** Manage categories & feeds - the structural hub (prompt.md §9.5). */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Manage() {
     const feeds = useFeeds();
     const categories = useCategories();
@@ -195,7 +193,6 @@ function groupByCategory(categories: Category[], feeds: Feed[]) {
     }));
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function CategoryCard({
     category,
     feeds,

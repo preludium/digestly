@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 
 /** Digest engine tab (admin-only, prompt.md §7, §9.7): enable, cron + human preview, look-back,
  *  categories, AI on/off, and Run-now (runs for all users). Server enforces the admin role (§11). */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function DigestSettings() {
     const config = useDigestConfig();
     const update = useUpdateDigestConfig();

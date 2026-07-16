@@ -30,7 +30,6 @@ import { cn } from "@/lib/utils";
 /** Notifications (ntfy) tab (prompt.md §7a, §9.7) - every user configures their own push channel:
  *  server URL, topic, write-only auth token, priority, per-event toggles. Autosaves (debounced)
  *  on every change; a Test button sends a one-off push. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function NotificationsSettings() {
     const config = useNotifications();
     const update = useUpdateNotifications();

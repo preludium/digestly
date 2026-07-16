@@ -17,7 +17,6 @@ type Row = OpmlPreviewEntry & { category_edit: string; include: boolean };
 
 /** Import/Export tab (prompt.md §9.7): OPML upload → preview → confirm (each feed needs a category,
  *  default Other) and a one-click export download. Lossless round-trip. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function ImportExport() {
     const preview = useOpmlPreview();
     const doImport = useOpmlImport();

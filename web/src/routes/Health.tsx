@@ -70,7 +70,6 @@ function YoutubeIcon({ className }: { className?: string }) {
 }
 
 /** Feed health / diagnostics (prompt.md §9.6). Failing/disabled feeds surfaced, never dropped. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function Health() {
     const health = useFeedHealth();
     const feeds = useFeeds();

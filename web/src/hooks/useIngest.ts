@@ -69,7 +69,6 @@ export function useIngestNow() {
  *  Owns the ingest toast end-to-end: it opens on the click, tracks each feed as it's polled, and
  *  resolves only after the refetched items are on screen - so "Ingest complete" and the new items
  *  appear together rather than the toast promising something the list hasn't shown yet. */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function useIngestEvents() {
     const qc = useQueryClient();
     const { runId, sync, progress, finish } = useIngestStore();

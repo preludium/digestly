@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 /** Ingestion + retention tab (admin-only, prompt.md §8). Concurrency/politeness/interval, retention
  *  policy (starred kept forever), and the SSRF allow-private toggle. Autosaves (debounced) on
  *  every change; server enforces the admin role (§11). */
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 export function IngestionSettings() {
     const settings = useIngestionSettings();
     const update = useUpdateIngestionSettings();

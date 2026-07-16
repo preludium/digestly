@@ -99,7 +99,6 @@ export function ConnectedAccounts() {
     );
 }
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing baseline
 function ProviderRow({ conn }: { conn: OAuthConnection }) {
     const categories = useCategories();
     const connect = useOauthConnect();
