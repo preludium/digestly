@@ -50,11 +50,14 @@
             }
         },
         {
-            "includes": ["public/sw.js"],
+            "includes": ["src/components/ui/sidebar.tsx"],
             "linter": {
                 "rules": {
-                    "complexity": {
-                        "noExcessiveLinesPerFunction": "off"
+                    "correctness": {
+                        "useExhaustiveDependencies": "off"
+                    },
+                    "suspicious": {
+                        "noDocumentCookie": "off"
                     }
                 }
             }

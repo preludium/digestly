@@ -55,6 +55,7 @@ async function notifyClientsToFlush() {
         client.postMessage({ type: "hf-flush-outbox" });
 }
 
+// biome-ignore lint/complexity/noExcessiveLinesPerFunction: existing service-worker handler
 self.addEventListener("fetch", (event) => {
     const req = event.request;
     if (req.method !== "GET") return; // never cache/replay mutations (auth, star, etc.)
