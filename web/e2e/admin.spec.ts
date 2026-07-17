@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, loginAs } from "./support/api";
 
+// This spec sorts first alphabetically, so it runs before the others on the shared serial
+// DB. Restoring allow_registration=true (the finally block below) is load-bearing: every
+// later spec registers a user, and a left-closed toggle fails all of them. Keep the restore
+// robust - do not add page navigation inside the try that could detach the switch.
 test("admin manages the Open registration setting", async ({ page }) => {
     await loginAs(page.request, ADMIN.username, ADMIN.password);
     await page.goto("/admin/users");

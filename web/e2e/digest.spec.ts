@@ -27,11 +27,6 @@ test("admin digest run produces a viewable digest", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "Digests" })).toBeVisible();
 
     // Assert at least one digest row was generated, not the "No digests yet" empty state.
-    //
-    // STAGE-5 NOTE: if this assertion fails (list still empty), the offline grouped-items
-    // fallback may not have produced content within the default lookback_days=1 window.
-    // Fix: pass lookbackDays: 7 to adminDigestRun() above. Do not assume the endpoint
-    // itself is broken before trying that parameter.
     await expect(page.getByText("No digests yet")).not.toBeVisible();
 
     // Click into the first digest detail. Rows are <a href="/digests/:id"> links; the
@@ -43,12 +38,8 @@ test("admin digest run produces a viewable digest", async ({ page }) => {
         page.getByRole("link", { name: "Back to digests" }),
     ).toBeVisible();
 
-    // The fixture feed title in the digest sections doubles as a serde drift check:
-    // a rename of a DigestDetail payload field not mirrored in types.ts would cause
-    // sections to render nothing and this assertion would fail.
-    //
-    // STAGE-5 NOTE: if this assertion fails but the detail page otherwise loads, the
-    // digest may group by category (not feed), in which case switch to asserting
-    // FIXTURE.rssItemTitle (the item title is present regardless of grouping).
+    // The fixture feed title renders as a section header on the detail page, so this
+    // catches DigestDetail payload drift (a renamed section field would leave the
+    // sections empty). ItemDto.title drift is covered by items.spec / feeds.spec.
     await expect(page.getByText(FIXTURE.rssFeedTitle)).toBeVisible();
 });
