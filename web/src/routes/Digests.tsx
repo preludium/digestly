@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { useMe } from "@/hooks/useAuth";
@@ -52,9 +53,7 @@ export function Digests() {
 
     return (
         <div className="space-y-4">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Digests
-            </h1>
+            <PageTitle>Digests</PageTitle>
 
             {schedule.data && (
                 <Card className="flex flex-wrap items-center gap-3 p-4">

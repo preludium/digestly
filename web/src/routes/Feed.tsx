@@ -2,6 +2,7 @@ import { Rss, Search as SearchIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { IngestButton } from "@/components/feeds/IngestButton";
 import { FilterBar } from "@/components/items/FilterBar";
 import { ItemGrid } from "@/components/items/ItemGrid";
@@ -191,9 +192,7 @@ export function Feed() {
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <h1 className="font-display text-2xl font-semibold tracking-tight">
-                    Your feed
-                </h1>
+                <PageTitle>Your feed</PageTitle>
                 <IngestButton />
             </div>
 

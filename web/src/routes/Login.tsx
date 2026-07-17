@@ -12,6 +12,7 @@ import {
     useDiscoverablePasskeyLogin,
     usePasskeyLogin,
 } from "@/hooks/usePasskeys";
+import { apiError } from "@/lib/apiError";
 import {
     conditionalMediationAvailable,
     isCancellation,
@@ -83,9 +84,7 @@ export function Login() {
             navigate("/", { replace: true });
         } catch (e) {
             if (isCancellation(e)) return; // user dismissed the prompt - no error
-            toast.error(
-                e instanceof Error ? e.message : "Passkey sign-in failed",
-            );
+            toast.error(apiError(e, "Passkey sign-in failed"));
         }
     };
 

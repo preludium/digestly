@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { FeedEditModal } from "@/components/feeds/FeedEditModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -94,9 +95,7 @@ export function Health() {
     return (
         <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <h1 className="font-display text-2xl font-semibold tracking-tight">
-                    Feed health
-                </h1>
+                <PageTitle>Feed health</PageTitle>
                 <div className="flex flex-wrap items-center gap-3.5">
                     <div className="relative">
                         <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground" />

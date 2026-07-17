@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { NameDialog } from "@/components/common/NameDialog";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { FeedEditModal } from "@/components/feeds/FeedEditModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ import {
     useUpdateCategory,
 } from "@/hooks/useCategories";
 import { useFeeds, useRefreshFeed, useUnsubscribe } from "@/hooks/useFeeds";
+import { apiError } from "@/lib/apiError";
 import { kindIcon, kindLabel } from "@/lib/format";
 import type { Category, Feed } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -82,10 +84,7 @@ export function Manage() {
     const handleCreateCategory = (name: string) => {
         createCategory.mutate(name, {
             onSuccess: () => toast.success("Category created"),
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not create",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not create")),
         });
     };
 
@@ -96,9 +95,7 @@ export function Manage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-                <h1 className="font-display text-2xl font-semibold tracking-tight">
-                    Manage
-                </h1>
+                <PageTitle>Manage</PageTitle>
                 <div className="flex gap-2">
                     <Button onClick={() => openAddFeed(true)}>
                         <Plus className="size-4" /> Add feed
@@ -215,10 +212,7 @@ function CategoryCard({
             { id: category.id, name },
             {
                 onSuccess: () => toast.success("Category renamed"),
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not rename",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not rename")),
             },
         );
     };
@@ -227,10 +221,7 @@ function CategoryCard({
         del.mutate(category.id, {
             onSuccess: () =>
                 toast.success("Category deleted; feeds moved to Other"),
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not delete",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not delete")),
         });
     };
 
