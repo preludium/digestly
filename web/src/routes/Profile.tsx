@@ -4,11 +4,11 @@ import { toast } from "sonner";
 import { FieldError } from "@/components/common/AuthCard";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
-import { PasskeyManager } from "@/components/PasskeyManager";
 import {
     SETTINGS_TILE_CLASS,
     TileTitle,
-} from "@/components/settings/SettingsTile";
+} from "@/components/common/SettingsTile";
+import { PasskeyManager } from "@/components/PasskeyManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

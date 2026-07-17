@@ -6,7 +6,7 @@ import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
     SETTINGS_TILE_CLASS,
     TileTitle,
-} from "@/components/settings/SettingsTile";
+} from "@/components/common/SettingsTile";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";

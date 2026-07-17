@@ -26,6 +26,21 @@ export function TileTitle({
     );
 }
 
+export function Field({
+    label,
+    children,
+}: {
+    label: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div className="space-y-1.5">
+            <Label>{label}</Label>
+            {children}
+        </div>
+    );
+}
+
 /** Labelled numeric setting with an optional hint underneath - the unit of every settings grid
  *  (AI generation params, ingestion, retention). */
 export function NumField({
@@ -48,8 +63,7 @@ export function NumField({
     unit?: string;
 }) {
     return (
-        <div className="space-y-1.5">
-            <Label>{label}</Label>
+        <Field label={label}>
             <NumberField
                 value={value}
                 onChange={onChange}
@@ -61,6 +75,6 @@ export function NumField({
             {description && (
                 <p className="text-xs text-muted-foreground">{description}</p>
             )}
-        </div>
+        </Field>
     );
 }

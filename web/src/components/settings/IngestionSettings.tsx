@@ -6,7 +6,7 @@ import {
     NumField,
     SETTINGS_TILE_CLASS,
     TileTitle,
-} from "@/components/settings/SettingsTile";
+} from "@/components/common/SettingsTile";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";

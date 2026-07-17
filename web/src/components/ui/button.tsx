@@ -17,12 +17,17 @@ const buttonVariants = cva(
                 destructive:
                     "bg-destructive text-destructive-foreground hover:bg-destructive/90",
                 link: "text-primary underline-offset-4 hover:underline",
+                linkMuted:
+                    "text-xs font-normal text-muted-foreground underline",
+                banner: "w-full bg-primary text-xs font-medium text-primary-foreground [&_svg]:size-3.5",
+                plain: "",
             },
             size: {
                 default: "h-10 px-4 py-2",
                 sm: "h-9 rounded-md px-3",
                 lg: "h-11 rounded-md px-6",
                 icon: "h-10 w-10",
+                inline: "h-auto p-0",
             },
         },
         defaultVariants: { variant: "default", size: "default" },
