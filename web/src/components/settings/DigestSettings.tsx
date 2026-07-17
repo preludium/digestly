@@ -177,9 +177,9 @@ export function DigestSettings() {
                             unit="days"
                         />
                         <p className="text-xs text-muted-foreground">
-                            How far back to gather items each time the digest
-                            runs, e.g. 1 day only includes what came in since
-                            yesterday.
+                            Maximum window: used for your first-ever digest and
+                            as a fallback after a long gap. Normally each run
+                            only picks up what's new since the last one.
                         </p>
                     </div>
                 </div>
