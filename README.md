@@ -240,9 +240,10 @@ are also admin-only.
 ## Digest schedule
 
 The digest **engine is admin-configured and instance-wide** (Settings → Digest): enable/
-disable, a cron schedule (default daily, 09:00), a look-back window (default 24h), a timezone, which
-categories to include, and whether to use AI. The schedule preview renders human-readable
-("Every day at 09:00 (UTC)").
+disable, a cron schedule (default daily, 09:00), a maximum look-back window (default 24h - used
+for a user's first digest and as a fallback after a long gap; otherwise each run picks up where
+that user's last digest left off), a timezone, which categories to include, and whether to use
+AI. The schedule preview renders human-readable ("Every day at 09:00 (UTC)").
 
 **Content is per-user.** Each run iterates users and builds each one a digest of _their_ own
 subscriptions grouped by _their_ categories, with one AI prompt per non-empty category via the
