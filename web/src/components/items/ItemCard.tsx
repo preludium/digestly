@@ -10,7 +10,7 @@ import { highlight } from "@/lib/highlight";
 import { topicBadgeClass } from "@/lib/topicColor";
 import type { Item } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import RedditLogo from "./RedditLogo.svg?react";
+import { RedditLogo } from "./RedditLogo";
 
 function Thumb({ item }: { item: Item }) {
     const [errored, setErrored] = useState(false);
