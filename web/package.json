@@ -13,6 +13,7 @@
         "format": "biome format --write .",
         "check": "biome check --write .",
         "e2e": "playwright test",
+        "e2e:screenshots": "pnpm run build && mkdir -p ui-screenshots && playwright test --config playwright.screenshots.config.ts e2e/screenshots",
         "e2e:ui": "playwright test --ui"
     },
     "dependencies": {

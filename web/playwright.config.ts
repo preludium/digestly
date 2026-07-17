@@ -3,6 +3,7 @@ import { ADMIN, APP_URL } from "./e2e/support/api";
 
 export default defineConfig({
     testDir: "./e2e",
+    testIgnore: "**/screenshots/**",
     fullyParallel: false,
     workers: 1,
     reporter: process.env.CI
