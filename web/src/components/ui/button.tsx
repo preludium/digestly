@@ -19,8 +19,8 @@ const buttonVariants = cva(
                 link: "text-primary underline-offset-4 hover:underline",
                 linkMuted:
                     "text-xs font-normal text-muted-foreground underline",
-                banner: "w-full bg-primary text-xs font-medium text-primary-foreground [&_svg]:size-3.5",
-                plain: "",
+                banner: "w-full rounded-none bg-primary text-xs font-medium text-primary-foreground [&_svg]:size-3.5",
+                plain: "rounded-none",
             },
             size: {
                 default: "h-10 px-4 py-2",
