@@ -12,6 +12,7 @@ import {
     useSubscribeStarterFeeds,
     useUpdateSettings,
 } from "@/hooks/useSettings";
+import { apiError } from "@/lib/apiError";
 import { passkeysSupported } from "@/lib/webauthn";
 import { useUiStore } from "@/stores/ui";
 
@@ -42,20 +43,14 @@ export function Onboarding() {
                     `Added ${r.added} starter feed${r.added === 1 ? "" : "s"}`,
                 );
             },
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not add feeds",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not add feeds")),
         });
 
     const finish = () => {
         update.mutate(
             { timezone: tz, onboarded: true },
             {
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not save",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not save")),
             },
         );
     };

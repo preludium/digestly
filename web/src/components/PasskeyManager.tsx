@@ -12,6 +12,7 @@ import {
     useRegisterPasskey,
     useRenamePasskey,
 } from "@/hooks/usePasskeys";
+import { apiError } from "@/lib/apiError";
 import { formatDateTime } from "@/lib/format";
 import { isCancellation, passkeysSupported } from "@/lib/webauthn";
 
@@ -39,9 +40,7 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
             toast.success("Passkey added");
         } catch (e) {
             if (isCancellation(e)) return;
-            toast.error(
-                e instanceof Error ? e.message : "Could not add passkey",
-            );
+            toast.error(apiError(e, "Could not add passkey"));
         }
     };
 
@@ -50,10 +49,7 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
         rename.mutate(
             { id: renaming.id, name },
             {
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Rename failed",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Rename failed")),
             },
         );
     };
@@ -62,8 +58,7 @@ export function PasskeyManager({ compact = false }: { compact?: boolean }) {
         if (!deleting) return;
         remove.mutate(deleting.id, {
             onSuccess: () => toast.success("Passkey removed"),
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Delete failed"),
+            onError: (e) => toast.error(apiError(e, "Delete failed")),
         });
     };
 
