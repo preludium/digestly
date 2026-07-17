@@ -2,6 +2,7 @@ import { Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SectionHeader } from "@/components/common/PageHeadings";
 import { ConnectedAccounts } from "@/components/settings/ConnectedAccounts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import {
     useOpmlImport,
     useOpmlPreview,
 } from "@/hooks/useOpml";
+import { apiError } from "@/lib/apiError";
 import type { OpmlImportItem, OpmlPreviewEntry } from "@/lib/types";
 
 type Row = OpmlPreviewEntry & { category_edit: string; include: boolean };
@@ -34,10 +36,7 @@ export function ImportExport() {
                         include: !e.already_subscribed,
                     })),
                 ),
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not read OPML",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not read OPML")),
         });
     };
 
@@ -63,14 +62,13 @@ export function ImportExport() {
                 setRows(null);
                 if (fileRef.current) fileRef.current.value = "";
             },
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Import failed"),
+            onError: (e) => toast.error(apiError(e, "Import failed")),
         });
     };
 
     const doExport = () =>
         downloadOpmlExport().catch((e) =>
-            toast.error(e instanceof Error ? e.message : "Export failed"),
+            toast.error(apiError(e, "Export failed")),
         );
 
     return (
@@ -78,9 +76,7 @@ export function ImportExport() {
             <ConnectedAccounts />
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Export
-                </h3>
+                <SectionHeader>Export</SectionHeader>
                 <p className="text-[13px] text-muted-foreground">
                     Download all your subscriptions as an OPML file, grouped by
                     category.
@@ -95,9 +91,7 @@ export function ImportExport() {
             </div>
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Import
-                </h3>
+                <SectionHeader>Import</SectionHeader>
                 <p className="text-[13px] text-muted-foreground">
                     Upload an OPML file, review the feeds, assign categories,
                     then import.

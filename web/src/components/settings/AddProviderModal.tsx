@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { Field } from "@/components/common/SettingsTile";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -19,6 +20,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useAiPresets, useCreateProvider } from "@/hooks/useAi";
+import { apiError } from "@/lib/apiError";
 import type { AiPreset, ApiStyle, NewAiProvider } from "@/lib/types";
 
 const CUSTOM = "__custom__";
@@ -115,10 +117,7 @@ function ProviderForm({
                 toast.success("Provider added");
                 onDone();
             },
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not add provider",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not add provider")),
         });
     };
 
@@ -228,21 +227,6 @@ function ProviderForm({
                     {create.isPending ? "Adding…" : "Add provider"}
                 </Button>
             </div>
-        </div>
-    );
-}
-
-function Field({
-    label,
-    children,
-}: {
-    label: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="space-y-1.5">
-            <Label>{label}</Label>
-            {children}
         </div>
     );
 }

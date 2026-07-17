@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SectionHeader } from "@/components/common/PageHeadings";
 import {
     SETTINGS_TILE_CLASS,
     TileTitle,
@@ -21,6 +22,7 @@ import {
     useRunDigest,
     useUpdateDigestConfig,
 } from "@/hooks/useDigest";
+import { apiError } from "@/lib/apiError";
 import type { PutDigestConfig } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -69,8 +71,7 @@ export function DigestSettings() {
 
     useAutosave(form, (f) =>
         update.mutate(f, {
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         }),
     );
 
@@ -114,19 +115,14 @@ export function DigestSettings() {
                 toast.success(
                     `Digest ran - ${s.digests} generated, ${s.pushed} pushed`,
                 ),
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Digest run failed",
-                ),
+            onError: (e) => toast.error(apiError(e, "Digest run failed")),
         });
     };
 
     return (
         <div className="space-y-5">
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Schedule
-                </h3>
+                <SectionHeader>Schedule</SectionHeader>
                 {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
                 <label
                     className={cn(
@@ -190,9 +186,7 @@ export function DigestSettings() {
             </div>
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Content
-                </h3>
+                <SectionHeader>Content</SectionHeader>
 
                 <fieldset className="space-y-2">
                     <legend className="text-sm font-medium">

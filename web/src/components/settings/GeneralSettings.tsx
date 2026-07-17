@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SectionHeader } from "@/components/common/PageHeadings";
+import { Field } from "@/components/common/SettingsTile";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { NumberField } from "@/components/ui/number-field";
 import {
     Select,
@@ -15,6 +16,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useAutosave } from "@/hooks/useAutosave";
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings";
+import { apiError } from "@/lib/apiError";
 import type { UserSettings } from "@/lib/types";
 import { useUiStore } from "@/stores/ui";
 
@@ -38,8 +40,7 @@ export function GeneralSettings() {
 
     useAutosave(form, (f) =>
         update.mutate(f, {
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         }),
     );
 
@@ -57,9 +58,7 @@ export function GeneralSettings() {
     return (
         <div className="space-y-5">
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Appearance
-                </h3>
+                <SectionHeader>Appearance</SectionHeader>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="List density">
                         <Select
@@ -102,9 +101,7 @@ export function GeneralSettings() {
             </div>
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Reading
-                </h3>
+                <SectionHeader>Reading</SectionHeader>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Default sort">
                         <Select
@@ -154,9 +151,7 @@ export function GeneralSettings() {
             </div>
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Regional
-                </h3>
+                <SectionHeader>Regional</SectionHeader>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Timezone">
                         <Input
@@ -169,21 +164,6 @@ export function GeneralSettings() {
                     </Field>
                 </div>
             </div>
-        </div>
-    );
-}
-
-function Field({
-    label,
-    children,
-}: {
-    label: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="space-y-1.5">
-            <Label>{label}</Label>
-            {children}
         </div>
     );
 }
