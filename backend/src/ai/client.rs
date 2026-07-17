@@ -125,12 +125,8 @@ impl super::LlmClient for AnthropicClient {
     }
 }
 
-/// Summarize a YouTube video by URL via Gemini's **native** `generateContent` endpoint
-/// (prompt.md §6a video path). Not a third [`ApiStyle`]: articles still go through the two
-/// standard clients; this exists only because Gemini's OpenAI-compatible endpoint cannot accept
-/// a `file_data.file_uri` video part, and Gemini is the only supported provider that understands
-/// video at all. Low media resolution: the audio track (the content) costs the same either way,
-/// and low cuts the frame tokens 4x.
+/// Summarize a YouTube video by URL via Gemini's native `generateContent` endpoint. This remains
+/// video-only; text summaries use the configured provider route and its standard API styles.
 pub async fn gemini_video_complete(
     http: Client,
     provider: &crate::ai::provider::ResolvedProvider,
@@ -148,7 +144,7 @@ pub async fn gemini_video_complete(
         timeout_secs,
     };
     let url = gemini_video_endpoint(&c.base_url, &c.model);
-    // Video part first, instructions second - Gemini's documented best practice for media prompts.
+    // Video first, instructions second - Gemini's documented best practice for media prompts.
     let body = json!({
         "contents": [{ "parts": [
             { "file_data": { "file_uri": video_url } },
@@ -157,10 +153,6 @@ pub async fn gemini_video_complete(
         "generationConfig": {
             "maxOutputTokens": max_tokens,
             "temperature": temperature,
-            // Low resolution is what keeps video affordable: 66 tokens per sampled frame (1 fps)
-            // + 32/sec of audio ≈ 100 tokens per second of runtime. Gemini's default resolution
-            // is 258 tokens/frame - roughly 300/sec, tripling the spend against the same budget.
-            // The Settings copy quotes the ~100/sec figure, so it is only true while this stays.
             "mediaResolution": "MEDIA_RESOLUTION_LOW",
         },
     });
@@ -173,7 +165,7 @@ pub async fn gemini_video_complete(
 }
 
 /// The native `generateContent` URL for a stored Gemini provider. Providers created from the
-/// preset store the OpenAI-compat base (`…/v1beta/openai`); the native API lives one level up.
+/// preset store the OpenAI-compatible base (`…/v1beta/openai`); the native API lives one level up.
 fn gemini_video_endpoint(base_url: &str, model: &str) -> String {
     let root = base_url
         .trim_end_matches('/')

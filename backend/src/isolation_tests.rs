@@ -1037,15 +1037,17 @@ async fn category_counts_reflect_active_facets() {
 
 /// Insert an active provider directly (bypassing the HTTP layer) for cache-reuse tests. `key_enc`
 /// is left NULL (keyless, Ollama-style) so no decryption is needed.
-async fn seed_active_provider(pool: &sqlx::SqlitePool, model: &str) {
-    sqlx::query(
+async fn seed_active_provider(pool: &sqlx::SqlitePool, model: &str) -> i64 {
+    let row = sqlx::query(
         "INSERT INTO ai_providers (name, provider_type, api_style, base_url, model, api_key_enc, is_active)
-         VALUES ('Seed', 'ollama', 'openai', 'http://localhost:11434/v1', ?, NULL, 1)",
+         VALUES ('Seed', 'ollama', 'openai', 'http://localhost:11434/v1', ?, NULL, 1)
+         RETURNING id",
     )
     .bind(model)
-    .execute(pool)
+    .fetch_one(pool)
     .await
     .unwrap();
+    row.get("id")
 }
 
 #[tokio::test]
@@ -1220,13 +1222,32 @@ async fn summarize_reuses_shared_cache_across_users() {
     )
     .await;
 
-    // Active provider + a pre-populated shared cache entry keyed by (item, model).
-    seed_active_provider(&pool, "test-model").await;
-    sqlx::query("INSERT INTO item_summaries (item_id, model, api_style, summary_text) VALUES (?, 'test-model', 'openai', 'CACHED SUMMARY')")
+    // Legacy active provider + a pre-populated provider-specific shared cache entry.
+    let provider_id = seed_active_provider(&pool, "test-model").await;
+    sqlx::query("INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text) VALUES (?, ?, 'text', 'test-model', 'openai', 'CACHED SUMMARY')")
         .bind(item)
+        .bind(provider_id)
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text) VALUES (?, ?, 'video', 'test-model', 'openai', 'WRONG KIND')")
+        .bind(item)
+        .bind(provider_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // Detail reads use the same effective cache identity as summarize_item, not the newest row.
+    let detail = call(
+        &app,
+        "GET",
+        &format!("/api/items/{item}"),
+        None,
+        Some(&alice_c),
+    )
+    .await;
+    assert_eq!(detail.status, StatusCode::OK);
+    assert_eq!(detail.body["summary"], "CACHED SUMMARY");
 
     // Alice summarizes → cache hit, no network.
     let a = call(
@@ -1254,13 +1275,18 @@ async fn summarize_reuses_shared_cache_across_users() {
     assert_eq!(b.body["cached"], true);
     assert_eq!(b.body["summary"], "CACHED SUMMARY");
 
-    // Only one cache row exists (no duplicate token spend).
-    let n: i64 = sqlx::query("SELECT COUNT(*) AS n FROM item_summaries WHERE item_id = ?")
-        .bind(item)
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get("n");
+    // Only one matching text cache row exists (no duplicate token spend); the wrong-kind row above
+    // is intentionally retained to prove detail lookup isolates summary kinds.
+    let n: i64 = sqlx::query(
+        "SELECT COUNT(*) AS n FROM item_summaries
+         WHERE item_id = ? AND provider_id = ? AND model = 'test-model' AND summary_kind = 'text'",
+    )
+    .bind(item)
+    .bind(provider_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap()
+    .get("n");
     assert_eq!(n, 1);
 }
 
@@ -1298,6 +1324,27 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     .await;
     let groq_id = groq.body["id"].as_i64().unwrap();
 
+    let defaults = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(defaults.body["text_provider_mode"], "single");
+    assert_eq!(defaults.body["text_provider_ids"], json!([gem_id]));
+
+    // The video provider may also be present in the stored route. Its effective text selection is
+    // filtered when the dedicated slot is assigned, rather than making the video assignment fail.
+    let ordered = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({
+            "max_tokens": 1024, "temperature": 0.3, "timeout_secs": 60,
+            "daily_token_budget": 0, "monthly_token_budget": 0,
+            "text_provider_mode": "ordered", "text_provider_ids": [gem_id, groq_id],
+            "video_provider_id": null
+        })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(ordered.status, StatusCode::OK);
+
     // Non-admin cannot touch it.
     let alice_c = register(&app, "alice", "password123").await.cookie.unwrap();
     let denied = call(
@@ -1310,7 +1357,7 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     .await;
     assert_eq!(denied.status, StatusCode::FORBIDDEN);
 
-    // Only Gemini providers qualify (the only API that accepts a video URL).
+    // Only Gemini providers qualify for the dedicated video slot.
     let bad = call(
         &app,
         "PUT",
@@ -1320,6 +1367,61 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     )
     .await;
     assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+
+    // Validation happens before generation settings are written, including on the unified route.
+    let invalid_unified = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({
+            "max_tokens": 2048, "temperature": 0.7, "timeout_secs": 90,
+            "daily_token_budget": 10, "monthly_token_budget": 20,
+            "text_provider_mode": "ordered", "text_provider_ids": [9999],
+            "video_provider_id": groq_id
+        })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(invalid_unified.status, StatusCode::NOT_FOUND);
+    let unchanged = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(unchanged.body["max_tokens"], 1024);
+    assert_eq!(unchanged.body["temperature"], 0.3);
+
+    let invalid_video = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({
+            "max_tokens": 3072, "temperature": 0.9, "timeout_secs": 120,
+            "daily_token_budget": 30, "monthly_token_budget": 40,
+            "text_provider_mode": "ordered", "text_provider_ids": [gem_id],
+            "video_provider_id": groq_id
+        })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(invalid_video.status, StatusCode::BAD_REQUEST);
+    let unchanged = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(unchanged.body["max_tokens"], 1024);
+    assert_eq!(unchanged.body["temperature"], 0.3);
+
+    // Narrow patches must not overwrite settings written by another settings panel.
+    let global_patch = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({ "max_tokens": 2048 })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(global_patch.status, StatusCode::OK);
+    let preserved = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(preserved.body["max_tokens"], 2048);
+    assert_eq!(preserved.body["text_provider_mode"], "ordered");
+    assert_eq!(
+        preserved.body["text_provider_ids"],
+        json!([gem_id, groq_id])
+    );
 
     // Unknown id → 404.
     let missing = call(
@@ -1344,6 +1446,45 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     assert_eq!(ok.status, StatusCode::OK);
     let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
     assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+    assert_eq!(settings.body["text_provider_mode"], "ordered");
+    assert_eq!(settings.body["text_provider_ids"], json!([groq_id]));
+
+    // The unified settings patch distinguishes an omitted field from explicit null.
+    let unified_set = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({ "video_provider_id": gem_id })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(unified_set.status, StatusCode::OK);
+    let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+
+    let unified_omitted = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({ "max_tokens": 4096 })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(unified_omitted.status, StatusCode::OK);
+    let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+
+    let unified_cleared = call(
+        &app,
+        "PUT",
+        "/api/ai/settings",
+        Some(json!({ "video_provider_id": null })),
+        Some(&admin_c),
+    )
+    .await;
+    assert_eq!(unified_cleared.status, StatusCode::OK);
+    let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
+    assert!(settings.body["video_provider_id"].is_null());
 
     // Clear with null.
     let cleared = call(
@@ -1619,7 +1760,7 @@ async fn digest_run_is_admin_only_and_archived_per_user_with_raw_fallback() {
     assert!(payload["fallback_note"]
         .as_str()
         .unwrap()
-        .contains("no active provider"));
+        .contains("no configured text provider"));
     // The Other category section is present with raw headlines.
     let other_section = payload["categories"]
         .as_array()

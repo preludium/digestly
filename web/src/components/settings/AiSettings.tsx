@@ -18,6 +18,7 @@ import {
     SETTINGS_TILE_CLASS,
 } from "@/components/common/SettingsTile";
 import { AddProviderModal } from "@/components/settings/AddProviderModal";
+import { TextProviderRouting } from "@/components/settings/TextProviderRouting";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,13 +37,12 @@ import {
     useAiSettings,
     useDeleteProvider,
     usePatchProvider,
-    useSetVideoProvider,
     useTestProvider,
     useUpdateAiSettings,
 } from "@/hooks/useAi";
 import { useAutosave } from "@/hooks/useAutosave";
 import { apiError } from "@/lib/apiError";
-import type { AiProvider } from "@/lib/types";
+import type { AiProvider, AiSettings as AiSettingsDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Admin AI tab (prompt.md §9.7): provider manager (active radio · test · delete · key hidden) +
@@ -63,8 +63,9 @@ export function AiSettings() {
                     </Button>
                 </div>
                 <p className="text-[13px] text-muted-foreground">
-                    One provider is active instance-wide; every user's summaries
-                    use it.
+                    Single mode uses the selected provider, or the active
+                    provider by default. Ordered mode uses the routing controls
+                    below.
                 </p>
 
                 {providers.isLoading ? (
@@ -88,7 +89,7 @@ export function AiSettings() {
                 )}
             </div>
 
-            <VideoProviderPicker />
+            {providers.data && <RoutingSettings providers={providers.data} />}
 
             <GlobalParams />
 
@@ -99,30 +100,54 @@ export function AiSettings() {
 
 /** YouTube video summaries via a dedicated Gemini provider (prompt.md §6a video path): Gemini is
  *  sent the video URL directly - no transcript needed. Off (default) = the transcript flow. */
-function VideoProviderPicker() {
-    const providers = useAiProviders();
+function RoutingSettings({ providers }: { providers: AiProvider[] }) {
     const settings = useAiSettings();
-    const setVideoProvider = useSetVideoProvider();
+    if (settings.isLoading) return null;
+    if (settings.isError || !settings.data)
+        return <ErrorBanner error={settings.error} />;
+    return (
+        <>
+            <TextProviderRouting
+                providers={providers}
+                settings={settings.data}
+            />
+            <VideoProviderPicker
+                providers={providers}
+                settings={settings.data}
+            />
+        </>
+    );
+}
 
-    const geminiProviders = (providers.data ?? []).filter(
+function VideoProviderPicker({
+    providers,
+    settings,
+}: {
+    providers: AiProvider[];
+    settings: AiSettingsDto;
+}) {
+    const update = useUpdateAiSettings();
+
+    const geminiProviders = providers.filter(
         (p) => p.provider_type === "gemini",
     );
-    const current = settings.data?.video_provider_id ?? null;
+    const current = settings.video_provider_id;
 
     const onChange = (value: string) => {
         const id = value === "off" ? null : Number(value);
-        setVideoProvider.mutate(id, {
-            onSuccess: () =>
-                toast(
-                    id === null
-                        ? "Video summaries use transcripts again"
-                        : "Video summaries now go to Gemini",
-                ),
-            onError: (e) => toast.error(apiError(e, "Could not save")),
-        });
+        update.mutate(
+            { video_provider_id: id },
+            {
+                onSuccess: () =>
+                    toast(
+                        id === null
+                            ? "Video summaries use transcripts again"
+                            : "Video summaries now go to Gemini",
+                    ),
+                onError: (e) => toast.error(apiError(e, "Could not save")),
+            },
+        );
     };
-
-    if (providers.isLoading || settings.isLoading) return null;
 
     return (
         <div className="space-y-3.5">
@@ -144,9 +169,7 @@ function VideoProviderPicker() {
                     below fill far faster than they do for articles.
                 </Alert>
             )}
-            {providers.isError || settings.isError ? (
-                <ErrorBanner error={providers.error ?? settings.error} />
-            ) : geminiProviders.length === 0 ? (
+            {geminiProviders.length === 0 ? (
                 <p className="text-[13px] text-muted-foreground">
                     Add a <span className="font-medium">Google Gemini</span>{" "}
                     provider above to enable this.
@@ -157,7 +180,7 @@ function VideoProviderPicker() {
                     <Select
                         value={current === null ? "off" : String(current)}
                         onValueChange={onChange}
-                        disabled={setVideoProvider.isPending}
+                        disabled={update.isPending}
                     >
                         <SelectTrigger id="video-provider">
                             <SelectValue />

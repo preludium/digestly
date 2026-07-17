@@ -1,6 +1,6 @@
-//! On-demand summarization (prompt.md §6, §6a). Checks the shared cache first (any user's entry
-//! for the active model counts), else calls the active provider and caches the result keyed by
-//! (item, model). For video items it lazily fetches the transcript and produces a structured
+//! On-demand summarization (prompt.md §6, §6a). Checks the shared cache first, then calls the
+//! configured text route and caches the result by item, provider, and summary kind. For video
+//! items it lazily fetches the transcript and produces a structured
 //! readable summary; with no captions it summarizes the description, clearly labelled.
 
 use anyhow::Result;
@@ -21,9 +21,18 @@ pub struct SummaryResult {
     pub cached: bool,
 }
 
+struct NewSummary<'a> {
+    provider_id: i64,
+    summary_kind: &'a str,
+    model: &'a str,
+    api_style: &'a str,
+    text: &'a str,
+    is_video: bool,
+}
+
 /// Why a summarize call couldn't produce a summary - each maps to a clear, key-free API error.
 pub enum SummarizeError {
-    /// No active provider configured (admin must add one).
+    /// No text provider configured (admin must add one).
     NotConfigured,
     /// The item has no text/transcript/description to summarize.
     NoContent,
@@ -58,7 +67,7 @@ struct ItemRow {
     feed_title: String,
 }
 
-/// Summarize item `item_id` with the active provider. Caller must have already verified the user's
+/// Summarize item `item_id` with the configured text route. Caller must have already verified the user's
 /// access to the item (per-user scoping). `force` regenerates even if a cached summary exists.
 pub async fn summarize_item(
     pool: &SqlitePool,
@@ -67,10 +76,7 @@ pub async fn summarize_item(
     item_id: i64,
     force: bool,
 ) -> Result<SummaryResult, SummarizeError> {
-    let active = provider::load_active(pool, enc_key)
-        .await?
-        .ok_or(SummarizeError::NotConfigured)?;
-    let model = active.model.clone();
+    let text_route = provider::load_text_route(pool, enc_key).await?;
 
     let mut item = load_item(pool, item_id).await?;
     let is_video = item.kind == "youtube";
@@ -82,12 +88,11 @@ pub async fn summarize_item(
         None
     };
 
-    // Cache hit (shared, keyed by item+model) - unless forced. For video items with a video
-    // provider, that provider's model is the canonical cache slot; the active model's entry is
-    // still honored second (it holds summaries made before the slot was set, or by fallback).
+    // Cache lookup follows the same preference order as live calls. Provider identity and summary
+    // kind prevent same-named models and native-video output from colliding.
     if !force {
         if let Some(vp) = &video_provider {
-            if let Some(text) = cached(pool, item_id, &vp.model).await? {
+            if let Some(text) = cached(pool, item_id, vp.id, &vp.model, "video").await? {
                 return Ok(SummaryResult {
                     summary: text,
                     model: vp.model.clone(),
@@ -95,13 +100,27 @@ pub async fn summarize_item(
                 });
             }
         }
-        if let Some(text) = cached(pool, item_id, &model).await? {
-            return Ok(SummaryResult {
-                summary: text,
-                model,
-                cached: true,
-            });
+        for text_provider in &text_route {
+            if let Some(text) = cached(
+                pool,
+                item_id,
+                text_provider.id,
+                &text_provider.model,
+                "text",
+            )
+            .await?
+            {
+                return Ok(SummaryResult {
+                    summary: text,
+                    model: text_provider.model.clone(),
+                    cached: true,
+                });
+            }
         }
+    }
+
+    if video_provider.is_none() && text_route.is_empty() {
+        return Err(SummarizeError::NotConfigured);
     }
 
     let params = AiParams::load(pool).await;
@@ -129,11 +148,14 @@ pub async fn summarize_item(
                     store_summary(
                         pool,
                         item_id,
-                        &vp.model,
-                        vp.api_style.as_str(),
-                        &resp.text,
-                        true,
-                        force,
+                        NewSummary {
+                            provider_id: vp.id,
+                            summary_kind: "video",
+                            model: &vp.model,
+                            api_style: vp.api_style.as_str(),
+                            text: &resp.text,
+                            is_video: true,
+                        },
                     )
                     .await?;
                     return Ok(SummaryResult {
@@ -187,14 +209,6 @@ pub async fn summarize_item(
         );
     }
 
-    let llm = client::make_client(
-        http.clone(),
-        active.api_style,
-        active.base_url,
-        active.model,
-        active.key,
-        params.timeout_secs,
-    );
     let req = LlmRequest {
         system,
         user,
@@ -202,28 +216,46 @@ pub async fn summarize_item(
         temperature: params.temperature,
     };
 
-    let resp = llm
-        .complete(&req)
-        .await
-        .map_err(|e| SummarizeError::Provider(e.user_message()))?;
-
-    budget::record(pool, resp.tokens_used).await;
-    store_summary(
-        pool,
-        item_id,
-        &model,
-        active.api_style.as_str(),
-        &resp.text,
-        is_video,
-        force,
-    )
-    .await?;
-
-    Ok(SummaryResult {
-        summary: resp.text,
-        model,
-        cached: false,
-    })
+    let mut last_error = None;
+    for text_provider in &text_route {
+        let llm = client::make_client(
+            http.clone(),
+            text_provider.api_style,
+            text_provider.base_url.clone(),
+            text_provider.model.clone(),
+            text_provider.key.clone(),
+            params.timeout_secs,
+        );
+        match llm.complete(&req).await {
+            Ok(resp) => {
+                budget::record(pool, resp.tokens_used).await;
+                store_summary(
+                    pool,
+                    item_id,
+                    NewSummary {
+                        provider_id: text_provider.id,
+                        summary_kind: "text",
+                        model: &text_provider.model,
+                        api_style: text_provider.api_style.as_str(),
+                        text: &resp.text,
+                        is_video,
+                    },
+                )
+                .await?;
+                return Ok(SummaryResult {
+                    summary: resp.text,
+                    model: text_provider.model.clone(),
+                    cached: false,
+                });
+            }
+            Err(error) => {
+                tracing::warn!(item_id, provider_id = text_provider.id, error = %error,
+                    "text provider failed - trying the next configured provider");
+                last_error = Some(error.user_message());
+            }
+        }
+    }
+    Err(last_error.map_or(SummarizeError::NotConfigured, SummarizeError::Provider))
 }
 
 /// Prompt for the video-URL path (§6a): Gemini watches the attached video itself and produces a
@@ -334,16 +366,21 @@ fn cap_opt(s: Option<String>, cap: usize) -> (Option<String>, bool) {
 async fn cached(
     pool: &SqlitePool,
     item_id: i64,
+    provider_id: i64,
     model: &str,
+    summary_kind: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    Ok(
-        sqlx::query("SELECT summary_text FROM item_summaries WHERE item_id = ? AND model = ?")
-            .bind(item_id)
-            .bind(model)
-            .fetch_optional(pool)
-            .await?
-            .map(|r| r.get("summary_text")),
+    Ok(sqlx::query(
+        "SELECT summary_text FROM item_summaries
+             WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?",
     )
+    .bind(item_id)
+    .bind(provider_id)
+    .bind(model)
+    .bind(summary_kind)
+    .fetch_optional(pool)
+    .await?
+    .map(|r| r.get("summary_text")))
 }
 
 async fn load_item(pool: &SqlitePool, item_id: i64) -> Result<ItemRow, SummarizeError> {
@@ -374,34 +411,30 @@ async fn load_item(pool: &SqlitePool, item_id: i64) -> Result<ItemRow, Summarize
 async fn store_summary(
     pool: &SqlitePool,
     item_id: i64,
-    model: &str,
-    api_style: &str,
-    summary: &str,
-    is_video: bool,
-    force: bool,
+    summary: NewSummary<'_>,
 ) -> Result<(), sqlx::Error> {
-    // On force, refresh the existing row's text + timestamp; otherwise insert (or leave a race
-    // winner in place).
-    let _ = force;
     sqlx::query(
-        "INSERT INTO item_summaries (item_id, model, api_style, summary_text)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(item_id, model) DO UPDATE SET
-             summary_text = excluded.summary_text,
+        "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(item_id, provider_id, summary_kind) DO UPDATE SET
+              model        = excluded.model,
+              summary_text = excluded.summary_text,
              api_style    = excluded.api_style,
              created_at   = datetime('now')",
     )
     .bind(item_id)
-    .bind(model)
-    .bind(api_style)
-    .bind(summary)
+    .bind(summary.provider_id)
+    .bind(summary.summary_kind)
+    .bind(summary.model)
+    .bind(summary.api_style)
+    .bind(summary.text)
     .execute(pool)
     .await?;
 
     // Reading time: for video items the summary IS the readable content; for articles only fill a
     // missing value (don't clobber the article's own reading time).
-    let secs = content::reading_time_secs(summary);
-    if is_video {
+    let secs = content::reading_time_secs(summary.text);
+    if summary.is_video {
         sqlx::query("UPDATE items SET reading_time_secs = ? WHERE id = ?")
             .bind(secs)
             .bind(item_id)
@@ -554,6 +587,26 @@ mod tests {
         .unwrap();
     }
 
+    async fn set_text_route(pool: &SqlitePool, ids: &[i64]) {
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, 'ordered')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(provider::TEXT_PROVIDER_MODE_KEY)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(provider::TEXT_ROUTE_PROVIDER_IDS_KEY)
+        .bind(serde_json::to_string(ids).unwrap())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
     async fn make_video_item(
         pool: &SqlitePool,
         transcript_status: &str,
@@ -582,11 +635,13 @@ mod tests {
     #[tokio::test]
     async fn video_provider_summarizes_by_url_without_touching_transcripts() {
         let pool = test_pool().await;
-        // Native Gemini mock: providers store the OpenAI-compat base (…/openai); the video call
-        // must strip it and hit the native generateContent path.
+        // Providers store the OpenAI-compatible base (`…/openai`); the native video call uses
+        // Gemini's generateContent endpoint and its documented file_data input shape.
         let mock = spawn_mock(axum::Router::new().route(
             "/models/gemini-vid:generateContent",
-            axum::routing::post(|| async {
+            axum::routing::post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
+                assert_eq!(body["contents"][0]["parts"][0]["file_data"]["file_uri"], "https://www.youtube.com/watch?v=abc123xyz00");
+                assert!(body["contents"][0]["parts"][1]["text"].is_string());
                 axum::Json(serde_json::json!({
                     "candidates": [{ "content": { "parts": [{ "text": "Video summary from Gemini." }] } }],
                     "usageMetadata": { "totalTokenCount": 1000 }
@@ -650,10 +705,15 @@ mod tests {
             }),
         ))
         .await;
-        make_provider(&pool, "groq", &mock, "text-model", true).await;
+        let fallback = make_provider(&pool, "groq", &mock, "text-model", true).await;
+        let failed_text =
+            make_provider(&pool, "openai", "http://127.0.0.1:9", "failed", false).await;
         // Video provider points at a dead port → the video path fails fast and must fall back.
         let vp = make_provider(&pool, "gemini", "http://127.0.0.1:9", "gemini-vid", false).await;
         set_video_provider(&pool, vp).await;
+        // Native video fails first. The text route also fails once before succeeding, proving the
+        // fallback uses the complete ordered route rather than only the legacy active provider.
+        set_text_route(&pool, &[failed_text, fallback]).await;
         // Transcript already fetched, so the fallback needs no youtube.com access either.
         let item_id = make_video_item(&pool, "fetched", Some("the transcript text")).await;
 
@@ -664,5 +724,67 @@ mod tests {
             .unwrap();
         assert_eq!(res.summary, "Fallback summary");
         assert_eq!(res.model, "text-model");
+    }
+
+    #[tokio::test]
+    async fn cache_identity_distinguishes_provider_and_summary_kind() {
+        let pool = test_pool().await;
+        let item_id = make_video_item(&pool, "fetched", Some("the transcript text")).await;
+
+        store_summary(
+            &pool,
+            item_id,
+            NewSummary {
+                provider_id: 10,
+                summary_kind: "text",
+                model: "same-model",
+                api_style: "openai",
+                text: "text",
+                is_video: true,
+            },
+        )
+        .await
+        .unwrap();
+        store_summary(
+            &pool,
+            item_id,
+            NewSummary {
+                provider_id: 11,
+                summary_kind: "video",
+                model: "same-model",
+                api_style: "openai",
+                text: "video",
+                is_video: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            cached(&pool, item_id, 10, "same-model", "text")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("text")
+        );
+        assert_eq!(
+            cached(&pool, item_id, 11, "same-model", "video")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("video")
+        );
+        assert!(cached(&pool, item_id, 10, "same-model", "video")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(cached(&pool, item_id, 11, "same-model", "text")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(cached(&pool, item_id, 10, "changed-model", "text")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

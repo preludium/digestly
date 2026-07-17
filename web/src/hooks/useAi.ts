@@ -4,6 +4,7 @@ import type {
     AiPreset,
     AiProvider,
     AiSettings,
+    AiSettingsInput,
     NewAiProvider,
     TestResult,
 } from "@/lib/types";
@@ -67,7 +68,11 @@ export function useDeleteProvider() {
     return useMutation({
         mutationFn: (id: number) =>
             api.del<{ ok: boolean }>(`/ai/providers/${id}`),
-        onSuccess: () => qc.invalidateQueries({ queryKey: PROVIDERS_KEY }),
+        onSuccess: () =>
+            Promise.all([
+                qc.invalidateQueries({ queryKey: PROVIDERS_KEY }),
+                qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+            ]),
     });
 }
 
@@ -89,24 +94,12 @@ export function useAiSettings() {
 export function useUpdateAiSettings() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: (
-            body: Omit<
-                AiSettings,
-                "tokens_used_today" | "tokens_used_month" | "video_provider_id"
-            >,
-        ) => api.put<{ ok: boolean }>("/ai/settings", body),
-        onSuccess: () => qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
-    });
-}
-
-/** Point the YouTube video-summary slot at a Gemini provider, or clear it with null (§6a). */
-export function useSetVideoProvider() {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: (providerId: number | null) =>
-            api.put<{ ok: boolean }>("/ai/video-provider", {
-                provider_id: providerId,
-            }),
-        onSuccess: () => qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+        mutationFn: (body: AiSettingsInput) =>
+            api.put<{ ok: boolean }>("/ai/settings", body),
+        onSuccess: () =>
+            Promise.all([
+                qc.invalidateQueries({ queryKey: SETTINGS_KEY }),
+                qc.invalidateQueries({ queryKey: PROVIDERS_KEY }),
+            ]),
     });
 }

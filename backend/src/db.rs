@@ -59,3 +59,61 @@ pub async fn test_pool() -> SqlitePool {
     std::mem::forget(dir);
     pool
 }
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{Row, SqlitePool};
+
+    #[tokio::test]
+    async fn ai_routing_migration_reuses_legacy_rows_only_for_the_active_provider() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE items (id INTEGER PRIMARY KEY);
+             CREATE TABLE ai_providers (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  model TEXT NOT NULL,
+                  api_style TEXT NOT NULL,
+                  is_active INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE item_summaries (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 item_id INTEGER NOT NULL,
+                 model TEXT NOT NULL,
+                 api_style TEXT NOT NULL,
+                 summary_text TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 UNIQUE (item_id, model)
+             );
+             INSERT INTO items (id) VALUES (1), (2);
+             INSERT INTO ai_providers (id, model, api_style, is_active)
+                  VALUES (10, 'matched', 'openai', 1), (11, 'matched', 'openai', 1),
+                         (12, 'other', 'anthropic', 0);
+             INSERT INTO item_summaries (item_id, model, api_style, summary_text)
+                 VALUES (1, 'matched', 'openai', 'matching cache'),
+                        (2, 'unmatched', 'openai', 'unmatched cache'),
+                        (2, 'other', 'anthropic', 'second cache');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0004_ai_routing.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let rows = sqlx::query(
+            "SELECT item_id, provider_id, model, summary_text
+             FROM item_summaries ORDER BY item_id, provider_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].get::<i64, _>("item_id"), 1);
+        assert_eq!(rows[0].get::<i64, _>("provider_id"), 10);
+        assert_eq!(rows[0].get::<String, _>("summary_text"), "matching cache");
+        assert_eq!(rows[1].get::<i64, _>("provider_id"), -3);
+        assert_eq!(rows[2].get::<i64, _>("provider_id"), -2);
+    }
+}

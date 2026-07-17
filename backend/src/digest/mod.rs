@@ -1,7 +1,7 @@
 //! Digest engine (prompt.md §6 "Digest", §7). The **engine is global/admin-configured** (one cron
 //! schedule, look-back window, enable, categories, AI on/off) but **content is per-user**: each run
 //! iterates users and builds each one a digest of *their* subscriptions grouped *by their*
-//! categories, one AI prompt per non-empty category via the active provider, archived to their
+//! categories, one AI prompt per non-empty category via the configured text route, archived to their
 //! `digests` row and pushed to their own ntfy channel (§7a).
 //!
 //! **AI fallback** (§6, §11): a provider error / budget exceeded produces a digest with raw grouped
@@ -198,11 +198,13 @@ pub async fn run_all(
     let floor = now - Duration::days(lookback_days);
     let end_s = fmt_dt(now);
 
-    // Resolve the active provider + params once for the whole run (shared across users).
-    let provider = if cfg.ai_enabled {
-        provider::load_active(pool, enc_key).await.unwrap_or(None)
+    // Resolve the ordered text route once for the whole run (shared across users).
+    let text_route = if cfg.ai_enabled {
+        provider::load_text_route(pool, enc_key)
+            .await
+            .unwrap_or_default()
     } else {
-        None
+        Vec::new()
     };
     let params = AiParams::load(pool).await;
 
@@ -237,7 +239,7 @@ pub async fn run_all(
             enc_key,
             user_id,
             &cfg,
-            &provider,
+            &text_route,
             &params,
             &start_s,
             &end_s,
@@ -313,7 +315,7 @@ async fn build_and_archive(
     enc_key: &[u8; 32],
     user_id: i64,
     cfg: &DigestConfig,
-    provider: &Option<ResolvedProvider>,
+    text_route: &[ResolvedProvider],
     params: &AiParams,
     start_s: &str,
     end_s: &str,
@@ -403,8 +405,8 @@ async fn build_and_archive(
 
         let mut ai_summary: Option<String> = None;
         if cfg.ai_enabled {
-            if let Some(p) = provider {
-                match summarize_category(pool, http, p, params, name, items).await {
+            if !text_route.is_empty() {
+                match summarize_category(pool, http, text_route, params, name, items).await {
                     Ok(text) => {
                         ai_used = true;
                         ai_summary = Some(text);
@@ -435,8 +437,9 @@ async fn build_and_archive(
 
     // A fallback note when AI was requested but at least one section couldn't use it.
     let fallback_note: Option<String> = if cfg.ai_enabled && used_raw_fallback {
-        Some(if provider.is_none() {
-            "AI summaries were unavailable (no active provider) - showing raw titles.".to_string()
+        Some(if text_route.is_empty() {
+            "AI summaries were unavailable (no configured text provider) - showing raw titles."
+                .to_string()
         } else {
             "AI summaries were unavailable for some sections (provider error or budget) - showing raw titles.".to_string()
         })
@@ -512,7 +515,7 @@ async fn build_and_archive(
 async fn summarize_category(
     pool: &SqlitePool,
     http: &Client,
-    provider: &ResolvedProvider,
+    text_route: &[ResolvedProvider],
     params: &AiParams,
     category: &str,
     items: &[DigestItem],
@@ -536,23 +539,35 @@ async fn summarize_category(
         .to_string();
     let user = format!("Category: {category}\n\nHeadlines this period:\n{list}");
 
-    let llm = client::make_client(
-        http.clone(),
-        provider.api_style,
-        provider.base_url.clone(),
-        provider.model.clone(),
-        provider.key.clone(),
-        params.timeout_secs,
-    );
     let req = LlmRequest {
         system,
         user,
         max_tokens: params.max_tokens,
         temperature: params.temperature,
     };
-    let resp = llm.complete(&req).await.map_err(|e| e.user_message())?;
-    budget::record(pool, resp.tokens_used).await;
-    Ok(resp.text)
+    let mut last_error = None;
+    for provider in text_route {
+        let llm = client::make_client(
+            http.clone(),
+            provider.api_style,
+            provider.base_url.clone(),
+            provider.model.clone(),
+            provider.key.clone(),
+            params.timeout_secs,
+        );
+        match llm.complete(&req).await {
+            Ok(resp) => {
+                budget::record(pool, resp.tokens_used).await;
+                return Ok(resp.text);
+            }
+            Err(error) => {
+                warn!(provider_id = provider.id, error = %error,
+                    "digest text provider failed - trying the next configured provider");
+                last_error = Some(error.user_message());
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "no configured text provider".to_string()))
 }
 
 /// "42 new articles across AI (14), Software Engineering (12)…" (§7a).
@@ -810,6 +825,41 @@ mod tests {
             .await
             .unwrap()
             .get("item_count")
+    }
+
+    async fn make_text_provider(pool: &SqlitePool, base_url: &str, active: bool) -> i64 {
+        let key = [3u8; 32];
+        let id = provider::create(
+            pool,
+            &key,
+            provider::NewProvider {
+                name: "test".into(),
+                provider_type: "openai".into(),
+                api_style: crate::ai::ApiStyle::OpenAi,
+                base_url: base_url.into(),
+                model: "test-model".into(),
+                key: Some("test-key".into()),
+            },
+        )
+        .await
+        .unwrap();
+        if active {
+            provider::activate(pool, id).await.unwrap();
+        }
+        id
+    }
+
+    async fn set_text_route(pool: &SqlitePool, ids: &[i64]) {
+        set_setting(pool, provider::TEXT_PROVIDER_MODE_KEY, "ordered")
+            .await
+            .unwrap();
+        set_setting(
+            pool,
+            provider::TEXT_ROUTE_PROVIDER_IDS_KEY,
+            &serde_json::to_string(ids).unwrap(),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -1100,7 +1150,16 @@ mod tests {
         let end_s = fmt_dt(now);
 
         let empty = build_and_archive(
-            &pool, &http, &enc_key, user_id, &cfg, &None, &params, &start_s, &end_s, false,
+            &pool,
+            &http,
+            &enc_key,
+            user_id,
+            &cfg,
+            &[],
+            &params,
+            &start_s,
+            &end_s,
+            false,
         )
         .await
         .unwrap();
@@ -1115,7 +1174,16 @@ mod tests {
         )
         .await;
         let created = build_and_archive(
-            &pool, &http, &enc_key, user_id, &cfg, &None, &params, &start_s, &end_s, false,
+            &pool,
+            &http,
+            &enc_key,
+            user_id,
+            &cfg,
+            &[],
+            &params,
+            &start_s,
+            &end_s,
+            false,
         )
         .await
         .unwrap();
@@ -1125,6 +1193,52 @@ mod tests {
             1,
             "exactly the one seeded item"
         );
+    }
+
+    #[tokio::test]
+    async fn category_summaries_fall_through_the_text_route_on_provider_error() {
+        let pool = crate::db::test_pool().await;
+        let (user_id, feed_id) = seed_user_with_sub(&pool, "alice").await;
+        seed_item(
+            &pool,
+            feed_id,
+            "i1",
+            "Item",
+            &fmt_dt(Utc::now() - Duration::hours(1)),
+        )
+        .await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                axum::Router::new().route(
+                    "/chat/completions",
+                    axum::routing::post(|| async {
+                        axum::Json(serde_json::json!({
+                            "choices": [{ "message": { "content": "Route fallback summary" } }],
+                            "usage": { "total_tokens": 12 }
+                        }))
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let fallback = make_text_provider(&pool, &format!("http://{address}"), true).await;
+        let failed = make_text_provider(&pool, "http://127.0.0.1:9", false).await;
+        set_text_route(&pool, &[failed, fallback]).await;
+
+        let http = crate::ingest::fetch::build_client();
+        run_all(&pool, &http, &[3u8; 32], None).await.unwrap();
+
+        let payload: String = sqlx::query("SELECT payload_json FROM digests WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get("payload_json");
+        assert!(payload.contains("Route fallback summary"));
     }
 
     /// The manual-override path ignores the previous-digest boundary entirely: the window is

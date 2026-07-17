@@ -6,7 +6,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 
 use crate::ai::{self, client, provider, ApiStyle, LlmRequest};
 use crate::auth::extract::AdminUser;
@@ -227,15 +227,55 @@ struct AiSettingsDto {
     tokens_used_month: i64,
     /// Dedicated Gemini provider for YouTube items (prompt.md §6a video path); null = off.
     video_provider_id: Option<i64>,
+    /// `single` uses the selected provider, falling back to the active provider by default;
+    /// `ordered` tries configured providers in order.
+    text_provider_mode: String,
+    /// Effective text provider IDs, filtered for the dedicated video provider.
+    text_provider_ids: Vec<i64>,
 }
 
 #[derive(Deserialize)]
 struct AiSettingsInput {
-    max_tokens: u32,
-    temperature: f32,
-    timeout_secs: u64,
-    daily_token_budget: i64,
-    monthly_token_budget: i64,
+    #[serde(default)]
+    max_tokens: Option<u32>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+    #[serde(default)]
+    daily_token_budget: Option<i64>,
+    #[serde(default)]
+    monthly_token_budget: Option<i64>,
+    #[serde(default)]
+    text_provider_mode: Option<String>,
+    #[serde(default)]
+    text_provider_ids: Option<Vec<i64>>,
+    /// Absent preserves this setting; `null` clears it.
+    #[serde(default)]
+    video_provider_id: SettingField<i64>,
+}
+
+#[derive(Default)]
+enum SettingField<T> {
+    #[default]
+    Absent,
+    Null,
+    Value(T),
+}
+
+impl<'de, T> Deserialize<'de> for SettingField<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(match Option::<T>::deserialize(deserializer)? {
+            Some(value) => Self::Value(value),
+            None => Self::Null,
+        })
+    }
 }
 
 async fn get_ai_settings(
@@ -246,11 +286,15 @@ async fn get_ai_settings(
     let (day, month) = ai::budget::spent(&state.pool)
         .await
         .map_err(AppError::Internal)?;
-    let video_provider_id = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(provider::VIDEO_PROVIDER_KEY)
-        .fetch_optional(&state.pool)
-        .await?
-        .and_then(|r| r.get::<String, _>("value").parse::<i64>().ok());
+    let video_provider_id = provider::selected_video_provider_id(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
+    let text_provider_mode = provider::text_provider_mode(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
+    let text_provider_ids = provider::selected_text_provider_ids(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
     Ok(Json(AiSettingsDto {
         max_tokens: p.max_tokens,
         temperature: p.temperature,
@@ -260,6 +304,8 @@ async fn get_ai_settings(
         tokens_used_today: day,
         tokens_used_month: month,
         video_provider_id,
+        text_provider_mode,
+        text_provider_ids,
     }))
 }
 
@@ -268,32 +314,102 @@ async fn put_ai_settings(
     State(state): State<AppState>,
     Json(body): Json<AiSettingsInput>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let temp_x100 = (body.temperature.clamp(0.0, 2.0) * 100.0).round() as i64;
-    set_setting(
-        &state.pool,
-        "ai.max_tokens",
-        &body.max_tokens.clamp(64, 8192).to_string(),
-    )
-    .await?;
-    set_setting(&state.pool, "ai.temperature_x100", &temp_x100.to_string()).await?;
-    set_setting(
-        &state.pool,
-        "ai.timeout_secs",
-        &body.timeout_secs.clamp(5, 300).to_string(),
-    )
-    .await?;
-    set_setting(
-        &state.pool,
-        "ai.daily_token_budget",
-        &body.daily_token_budget.max(0).to_string(),
-    )
-    .await?;
-    set_setting(
-        &state.pool,
-        "ai.monthly_token_budget",
-        &body.monthly_token_budget.max(0).to_string(),
-    )
-    .await?;
+    let mut tx = state.pool.begin().await?;
+    let current_video_id = provider::selected_video_provider_id_tx(&mut tx)
+        .await
+        .map_err(AppError::Internal)?;
+    let video_provider_is_present = !matches!(body.video_provider_id, SettingField::Absent);
+    let video_provider_id = match body.video_provider_id {
+        SettingField::Absent => current_video_id,
+        SettingField::Null => None,
+        SettingField::Value(id) => Some(id),
+    };
+
+    if let Some(mode) = body.text_provider_mode.as_deref() {
+        if !matches!(mode, "single" | "ordered") {
+            return Err(AppError::BadRequest(
+                "text_provider_mode must be 'single' or 'ordered'".into(),
+            ));
+        }
+    }
+    let selected_text_ids = if let Some(ids) = body.text_provider_ids.as_ref() {
+        let mut unique_ids = ids.clone();
+        unique_ids.sort_unstable();
+        unique_ids.dedup();
+        if unique_ids.len() != ids.len() {
+            return Err(AppError::BadRequest(
+                "text provider IDs must be unique".into(),
+            ));
+        }
+        if ids.iter().any(|id| Some(*id) == video_provider_id) {
+            return Err(AppError::BadRequest(
+                "text provider IDs cannot include the video provider".into(),
+            ));
+        }
+        for id in ids {
+            if provider::load_one_tx(&mut tx, &state.enc_key, *id)
+                .await
+                .map_err(AppError::Internal)?
+                .is_none()
+            {
+                return Err(AppError::NotFound("text provider not found".into()));
+            }
+        }
+        Some(ids.clone())
+    } else {
+        None
+    };
+
+    if let Some(id) = video_provider_id {
+        ensure_gemini_provider_tx(&mut tx, &state.enc_key, id).await?;
+    }
+
+    let temperature = body
+        .temperature
+        .map(|value| (value.clamp(0.0, 2.0) * 100.0).round() as i64);
+    let max_tokens = body.max_tokens.map(|value| value.clamp(64, 8192));
+    let timeout_secs = body.timeout_secs.map(|value| value.clamp(5, 300));
+    let daily_token_budget = body.daily_token_budget.map(|value| value.max(0));
+    let monthly_token_budget = body.monthly_token_budget.map(|value| value.max(0));
+    let text_provider_ids_json = selected_text_ids
+        .map(|ids| serde_json::to_string(&ids).map_err(|error| AppError::Internal(error.into())))
+        .transpose()?;
+
+    if let Some(value) = max_tokens {
+        set_setting_tx(&mut tx, "ai.max_tokens", &value.to_string()).await?;
+    }
+    if let Some(value) = temperature {
+        set_setting_tx(&mut tx, "ai.temperature_x100", &value.to_string()).await?;
+    }
+    if let Some(value) = timeout_secs {
+        set_setting_tx(&mut tx, "ai.timeout_secs", &value.to_string()).await?;
+    }
+    if let Some(value) = daily_token_budget {
+        set_setting_tx(&mut tx, "ai.daily_token_budget", &value.to_string()).await?;
+    }
+    if let Some(value) = monthly_token_budget {
+        set_setting_tx(&mut tx, "ai.monthly_token_budget", &value.to_string()).await?;
+    }
+    if let Some(mode) = body.text_provider_mode {
+        set_setting_tx(&mut tx, provider::TEXT_PROVIDER_MODE_KEY, &mode).await?;
+    }
+    if let Some(ids) = text_provider_ids_json {
+        set_setting_tx(&mut tx, provider::TEXT_ROUTE_PROVIDER_IDS_KEY, &ids).await?;
+    }
+    if video_provider_is_present {
+        match video_provider_id {
+            Some(id) => {
+                set_setting_tx(&mut tx, provider::VIDEO_PROVIDER_KEY, &id.to_string()).await?
+            }
+            None => {
+                sqlx::query("DELETE FROM app_settings WHERE key = ?")
+                    .bind(provider::VIDEO_PROVIDER_KEY)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+    }
+    tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -308,34 +424,25 @@ struct VideoProviderInput {
 }
 
 /// `PUT /api/ai/video-provider` - point the video slot at a Gemini provider, or clear it.
-/// Gemini-only: it's the only supported API that accepts a YouTube URL as model input.
 async fn put_video_provider(
     _admin: AdminUser,
     State(state): State<AppState>,
     Json(body): Json<VideoProviderInput>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let mut tx = state.pool.begin().await?;
     match body.provider_id {
         None => {
             sqlx::query("DELETE FROM app_settings WHERE key = ?")
                 .bind(provider::VIDEO_PROVIDER_KEY)
-                .execute(&state.pool)
+                .execute(&mut *tx)
                 .await?;
         }
         Some(id) => {
-            let p = provider::load_one(&state.pool, &state.enc_key, id)
-                .await
-                .map_err(AppError::Internal)?
-                .ok_or_else(|| AppError::NotFound("provider not found".into()))?;
-            if p.provider_type != "gemini" {
-                return Err(AppError::BadRequest(
-                    "the video provider must be a Gemini provider - it's the only API that can \
-                     summarize a YouTube video by URL"
-                        .into(),
-                ));
-            }
-            set_setting(&state.pool, provider::VIDEO_PROVIDER_KEY, &id.to_string()).await?;
+            ensure_gemini_provider_tx(&mut tx, &state.enc_key, id).await?;
+            set_setting_tx(&mut tx, provider::VIDEO_PROVIDER_KEY, &id.to_string()).await?;
         }
     }
+    tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -343,15 +450,32 @@ async fn put_video_provider(
 // Helpers
 // ---------------------------------------------------------------------------
 
-async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> ApiResult<()> {
+async fn set_setting_tx(tx: &mut Transaction<'_, Sqlite>, key: &str, value: &str) -> ApiResult<()> {
     sqlx::query(
         "INSERT INTO app_settings (key, value) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
     .bind(key)
     .bind(value)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+async fn ensure_gemini_provider_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    enc_key: &[u8; 32],
+    id: i64,
+) -> ApiResult<()> {
+    let provider = provider::load_one_tx(tx, enc_key, id)
+        .await
+        .map_err(AppError::Internal)?
+        .ok_or_else(|| AppError::NotFound("provider not found".into()))?;
+    if provider.provider_type != "gemini" {
+        return Err(AppError::BadRequest(
+            "the video provider must be a Gemini provider".into(),
+        ));
+    }
     Ok(())
 }
 
