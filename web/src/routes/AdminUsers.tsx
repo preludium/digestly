@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -164,9 +165,7 @@ export function AdminUsers() {
 
     return (
         <div className="space-y-6">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Users
-            </h1>
+            <PageTitle>Users</PageTitle>
             <RegistrationToggle />
 
             <Card>

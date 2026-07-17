@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { Markdown } from "@/components/common/Markdown";
+import { PageTitle } from "@/components/common/PageHeadings";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,9 +69,7 @@ function Body({
     return (
         <div className="space-y-4">
             <header className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
-                <h1 className="font-display text-2xl font-semibold tracking-tight">
-                    {formatDayHeading(createdAt)}
-                </h1>
+                <PageTitle>{formatDayHeading(createdAt)}</PageTitle>
                 <span className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                     {formatTimeOfDay(createdAt)}
                 </span>

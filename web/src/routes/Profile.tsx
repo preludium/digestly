@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { FieldError } from "@/components/common/AuthCard";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { PageTitle, SectionHeader } from "@/components/common/PageHeadings";
 import {
     SETTINGS_TILE_CLASS,
     TileTitle,
@@ -106,16 +107,12 @@ export function Profile() {
 
     return (
         <div className="space-y-6">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Profile
-            </h1>
+            <PageTitle>Profile</PageTitle>
 
             <div className="space-y-5">
                 {!isBuiltinAdmin && (
                     <div className="space-y-3.5">
-                        <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                            Username
-                        </h3>
+                        <SectionHeader>Username</SectionHeader>
                         {updateUsername.isError && (
                             <ErrorBanner error={updateUsername.error} />
                         )}
@@ -151,9 +148,7 @@ export function Profile() {
                 )}
 
                 <div className="space-y-3.5">
-                    <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                        Password
-                    </h3>
+                    <SectionHeader>Password</SectionHeader>
                     {changePassword.isError && (
                         <ErrorBanner error={changePassword.error} />
                     )}
@@ -220,9 +215,7 @@ export function Profile() {
                 </div>
 
                 <div className="space-y-3.5">
-                    <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                        Passkeys
-                    </h3>
+                    <SectionHeader>Passkeys</SectionHeader>
                     <p className="text-[13px] text-muted-foreground">
                         Sign in without a password using Touch ID, Windows
                         Hello, or a security key.
@@ -231,9 +224,7 @@ export function Profile() {
                 </div>
 
                 <div className="space-y-3.5">
-                    <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                        Session
-                    </h3>
+                    <SectionHeader>Session</SectionHeader>
                     <div
                         className={cn(
                             SETTINGS_TILE_CLASS,
@@ -261,9 +252,9 @@ export function Profile() {
 
                 {!isBuiltinAdmin && (
                     <div className="space-y-3 border-t border-border pt-5">
-                        <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide text-destructive">
+                        <SectionHeader className="text-destructive">
                             Danger zone
-                        </h3>
+                        </SectionHeader>
                         <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5 sm:flex-row sm:items-center sm:justify-between">
                             <TileTitle
                                 title="Delete my account"
