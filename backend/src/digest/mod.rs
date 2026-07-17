@@ -733,13 +733,14 @@ mod tests {
     /// Seed a user, one category ("Other"), a feed, and a subscription tying them together -
     /// the minimum `build_and_archive`'s item-selection query needs to find items.
     async fn seed_user_with_sub(pool: &SqlitePool, username: &str) -> (i64, i64) {
-        let user_id: i64 =
-            sqlx::query("INSERT INTO users (username, password_hash) VALUES (?, 'hash') RETURNING id")
-                .bind(username)
-                .fetch_one(pool)
-                .await
-                .unwrap()
-                .get("id");
+        let user_id: i64 = sqlx::query(
+            "INSERT INTO users (username, password_hash) VALUES (?, 'hash') RETURNING id",
+        )
+        .bind(username)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .get("id");
         let category_id: i64 = sqlx::query(
             "INSERT INTO categories (user_id, name, position) VALUES (?, 'Other', 0) RETURNING id",
         )
@@ -748,12 +749,13 @@ mod tests {
         .await
         .unwrap()
         .get("id");
-        let feed_id: i64 = sqlx::query("INSERT INTO feeds (feed_url, kind) VALUES (?, 'rss') RETURNING id")
-            .bind(format!("https://feed.example/{username}.xml"))
-            .fetch_one(pool)
-            .await
-            .unwrap()
-            .get("id");
+        let feed_id: i64 =
+            sqlx::query("INSERT INTO feeds (feed_url, kind) VALUES (?, 'rss') RETURNING id")
+                .bind(format!("https://feed.example/{username}.xml"))
+                .fetch_one(pool)
+                .await
+                .unwrap()
+                .get("id");
         sqlx::query("INSERT INTO subscriptions (user_id, feed_id, category_id) VALUES (?, ?, ?)")
             .bind(user_id)
             .bind(feed_id)
@@ -764,7 +766,13 @@ mod tests {
         (user_id, feed_id)
     }
 
-    async fn seed_item(pool: &SqlitePool, feed_id: i64, guid: &str, title: &str, published_at: &str) {
+    async fn seed_item(
+        pool: &SqlitePool,
+        feed_id: i64,
+        guid: &str,
+        title: &str,
+        published_at: &str,
+    ) {
         sqlx::query(
             "INSERT INTO items (feed_id, guid, url, title, content_text, published_at, dedup_hash)
              VALUES (?, ?, ?, ?, 'body text', ?, ?)",
@@ -817,11 +825,27 @@ mod tests {
         let (user_id, _feed_id) = seed_user_with_sub(&pool, "alice").await;
         let older = Utc::now() - Duration::days(2);
         let newer = Utc::now() - Duration::hours(1);
-        seed_digest(&pool, user_id, &fmt_dt(older - Duration::days(1)), &fmt_dt(older)).await;
-        seed_digest(&pool, user_id, &fmt_dt(newer - Duration::days(1)), &fmt_dt(newer)).await;
+        seed_digest(
+            &pool,
+            user_id,
+            &fmt_dt(older - Duration::days(1)),
+            &fmt_dt(older),
+        )
+        .await;
+        seed_digest(
+            &pool,
+            user_id,
+            &fmt_dt(newer - Duration::days(1)),
+            &fmt_dt(newer),
+        )
+        .await;
 
         let last_end = last_digest_end(&pool, user_id).await.unwrap();
-        assert_eq!(fmt_dt(last_end), fmt_dt(newer), "picks the MAX, not the first row");
+        assert_eq!(
+            fmt_dt(last_end),
+            fmt_dt(newer),
+            "picks the MAX, not the first row"
+        );
     }
 
     /// (a) The headline acceptance test: a same-day second run picks up only what's new since the
@@ -834,7 +858,14 @@ mod tests {
         // Simulate a "07:00" run boundary already having happened.
         let run1_end = Utc::now() - Duration::hours(8);
         let morning_item_time = fmt_dt(run1_end - Duration::hours(2)); // inside run 1's window
-        seed_item(&pool, feed_id, "morning", "Morning news", &morning_item_time).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "morning",
+            "Morning news",
+            &morning_item_time,
+        )
+        .await;
         seed_digest(
             &pool,
             user_id,
@@ -845,7 +876,14 @@ mod tests {
 
         // An item published after the 07:00 boundary but before "now" (the simulated 15:00 run).
         let afternoon_item_time = fmt_dt(run1_end + Duration::hours(3));
-        seed_item(&pool, feed_id, "afternoon", "Afternoon news", &afternoon_item_time).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "afternoon",
+            "Afternoon news",
+            &afternoon_item_time,
+        )
+        .await;
 
         let http = crate::ingest::fetch::build_client();
         let enc_key = [0u8; 32];
@@ -931,7 +969,14 @@ mod tests {
     async fn new_user_first_digest_uses_the_floor_window() {
         let pool = crate::db::test_pool().await;
         let (user_id, feed_id) = seed_user_with_sub(&pool, "alice").await;
-        seed_item(&pool, feed_id, "i1", "Item", &fmt_dt(Utc::now() - Duration::hours(20))).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "i1",
+            "Item",
+            &fmt_dt(Utc::now() - Duration::hours(20)),
+        )
+        .await;
 
         let http = crate::ingest::fetch::build_client();
         let enc_key = [0u8; 32];
@@ -983,9 +1028,23 @@ mod tests {
 
         // Newer than the stale boundary (would be included if it were used directly), but older
         // than the 1-day floor (must be excluded once clamped).
-        seed_item(&pool, feed_id, "mid", "Mid-gap item", &fmt_dt(Utc::now() - Duration::days(5))).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "mid",
+            "Mid-gap item",
+            &fmt_dt(Utc::now() - Duration::days(5)),
+        )
+        .await;
         // Inside the floor - must be included.
-        seed_item(&pool, feed_id, "recent", "Recent item", &fmt_dt(Utc::now() - Duration::hours(2))).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "recent",
+            "Recent item",
+            &fmt_dt(Utc::now() - Duration::hours(2)),
+        )
+        .await;
 
         let http = crate::ingest::fetch::build_client();
         let enc_key = [0u8; 32];
@@ -1047,7 +1106,14 @@ mod tests {
         .unwrap();
         assert!(empty.is_none(), "no items → no digest created");
 
-        seed_item(&pool, feed_id, "i1", "Item", &fmt_dt(now - Duration::hours(2))).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "i1",
+            "Item",
+            &fmt_dt(now - Duration::hours(2)),
+        )
+        .await;
         let created = build_and_archive(
             &pool, &http, &enc_key, user_id, &cfg, &None, &params, &start_s, &end_s, false,
         )
@@ -1081,7 +1147,14 @@ mod tests {
 
         // Outside a 1-day incremental window (and outside the 2h-old prior boundary), but inside
         // a 7-day override.
-        seed_item(&pool, feed_id, "old", "Old item", &fmt_dt(Utc::now() - Duration::days(5))).await;
+        seed_item(
+            &pool,
+            feed_id,
+            "old",
+            "Old item",
+            &fmt_dt(Utc::now() - Duration::days(5)),
+        )
+        .await;
 
         let http = crate::ingest::fetch::build_client();
         let enc_key = [0u8; 32];
