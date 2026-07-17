@@ -1,13 +1,12 @@
 //! Pluggable AI provider layer (prompt.md §6, §6a). Provider-agnostic, admin-global: the admin
-//! configures providers and picks the active one; summaries land in the shared `item_summaries`
-//! cache keyed by (item, model) and are reused for every user (no duplicate token spend).
+//! configures providers and either uses the legacy active provider or an ordered text route;
+//! summaries land in the shared `item_summaries` cache keyed by item, provider, and summary kind.
 //!
 //! Exactly **two** API styles exist - `openai` (OpenAI-compatible `/chat/completions`, covers
 //! Groq/OpenAI/Gemini/Mistral/Ollama/custom) and `anthropic` (`/messages`). No provider-specific
 //! code beyond the two [`LlmClient`] implementations in [`client`], with one deliberate
-//! exception: [`client::gemini_video_complete`], a video-only native-Gemini call used when the
-//! admin sets a dedicated video provider (§6a) - Gemini's OpenAI-compatible endpoint cannot
-//! accept a YouTube `file_uri`, and Gemini is the only supported provider that understands video.
+//! exception: [`client::gemini_video_complete`], a video-only native Gemini Interactions call used
+//! when the admin sets a dedicated Gemini video provider.
 
 pub mod budget;
 pub mod client;

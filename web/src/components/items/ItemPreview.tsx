@@ -362,7 +362,7 @@ function SummarySlot({ view }: { view: Item & Partial<ItemDetail> }) {
         <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-border p-3">
             <p className="text-sm text-muted-foreground">
                 {view.content_type === "video"
-                    ? "Read this video as text - generate an AI summary of its transcript."
+                    ? "Read this video as text - generate an AI summary of the video."
                     : "Generate an AI summary of this article."}
             </p>
             <Button

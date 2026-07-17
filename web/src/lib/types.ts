@@ -180,6 +180,7 @@ export interface AiProvider {
     model: string;
     has_key: boolean;
     is_active: boolean;
+    is_video_only: boolean;
 }
 
 export interface NewAiProvider {
@@ -191,6 +192,8 @@ export interface NewAiProvider {
     key?: string;
 }
 
+export type TextProviderMode = "single" | "ordered";
+
 /** Global AI generation params + current usage (prompt.md §6, §9.7). */
 export interface AiSettings {
     max_tokens: number;
@@ -200,9 +203,14 @@ export interface AiSettings {
     monthly_token_budget: number;
     tokens_used_today: number;
     tokens_used_month: number;
-    /** Dedicated Gemini provider for YouTube items (§6a video path); null = off. */
+    text_provider_mode: TextProviderMode;
+    text_provider_ids: number[];
     video_provider_id: number | null;
 }
+
+export type AiSettingsInput = Partial<
+    Omit<AiSettings, "tokens_used_today" | "tokens_used_month">
+>;
 
 export interface SummaryResult {
     summary: string;

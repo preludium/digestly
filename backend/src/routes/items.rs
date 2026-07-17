@@ -282,33 +282,82 @@ async fn get_item(
                 i.upvote_ratio AS upvote_ratio, i.transcript_status AS transcript_status, \
                 i.transcript_text AS transcript_text, fe.kind AS kind, fe.site_url AS site_url, \
                 fe.icon_url AS feed_icon_url, \
-                s.content_type AS content_type, c.name AS category, \
-                COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
-                COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
-                (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count, \
-                (SELECT summary_text FROM item_summaries su WHERE su.item_id = i.id \
-                    ORDER BY su.created_at DESC LIMIT 1) AS summary \
-         FROM items i \
-         JOIN subscriptions s ON s.feed_id = i.feed_id AND s.user_id = ? \
-         JOIN feeds fe ON fe.id = i.feed_id \
-         JOIN categories c ON c.id = s.category_id \
-         LEFT JOIN item_states st ON st.item_id = i.id AND st.user_id = ? \
-         WHERE i.id = ?",
+                 s.content_type AS content_type, c.name AS category, \
+                 COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
+                 COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
+                 (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count \
+          FROM items i \
+          JOIN subscriptions s ON s.feed_id = i.feed_id AND s.user_id = ? \
+          JOIN feeds fe ON fe.id = i.feed_id \
+          JOIN categories c ON c.id = s.category_id \
+          LEFT JOIN item_states st ON st.item_id = i.id AND st.user_id = ? \
+          WHERE i.id = ?",
     )
     .bind(user.id)
     .bind(user.id)
     .bind(id)
     .fetch_optional(&state.pool)
     .await?
-    .ok_or_else(|| AppError::NotFound("item not found".into()))?;
+        .ok_or_else(|| AppError::NotFound("item not found".into()))?;
+
+    let kind: String = row.get("kind");
+    let summary = if kind == "youtube" {
+        let video_provider =
+            crate::ai::provider::load_video_provider(&state.pool, &state.enc_key).await?;
+        match video_provider {
+            Some(provider) => {
+                cached_summary(&state.pool, id, provider.id, &provider.model, "video").await?
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+    let summary = match summary {
+        Some(summary) => Some(summary),
+        None => {
+            let text_route =
+                crate::ai::provider::load_text_route(&state.pool, &state.enc_key).await?;
+            let mut found = None;
+            for provider in text_route {
+                if let Some(summary) =
+                    cached_summary(&state.pool, id, provider.id, &provider.model, "text").await?
+                {
+                    found = Some(summary);
+                    break;
+                }
+            }
+            found
+        }
+    };
 
     let detail = ItemDetailDto {
         content_html: row.get("content_html"),
         transcript_text: row.get("transcript_text"),
-        summary: row.get("summary"),
+        summary,
         item: row_to_item(&row),
     };
     Ok(Json(detail))
+}
+
+async fn cached_summary(
+    pool: &SqlitePool,
+    item_id: i64,
+    provider_id: i64,
+    model: &str,
+    summary_kind: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(sqlx::query(
+        "SELECT summary_text FROM item_summaries \
+         WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?",
+    )
+    .bind(item_id)
+    .bind(provider_id)
+    .bind(model)
+    .bind(summary_kind)
+    .fetch_optional(pool)
+    .await?
+    .map(|r| r.get("summary_text")))
 }
 
 // ---------------------------------------------------------------------------
