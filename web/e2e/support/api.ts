@@ -127,6 +127,10 @@ export async function ingestNow(
 
     const timeoutMs = opts?.timeoutMs ?? 30_000;
     const deadline = Date.now() + timeoutMs;
+    // Let the scheduler write the run record before the first poll, otherwise an immediate
+    // status check could observe run===null (not-yet-started) and return early. waitForItems
+    // is the real safety net, but this avoids the theoretical race.
+    await new Promise((resolve) => setTimeout(resolve, 250));
     for (;;) {
         const status = await request.get(`${APP_URL}/api/ingest/status`);
         await ok(status);
