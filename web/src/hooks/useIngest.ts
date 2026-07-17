@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
+import { apiError } from "@/lib/apiError";
 import type { IngestStatus, ServerEvent } from "@/lib/types";
 import { useIngestStore } from "@/stores/ingest";
 
@@ -50,9 +51,7 @@ export function useIngestNow() {
             });
         },
         onError: async (e) => {
-            toast.error(
-                e instanceof Error ? e.message : "Could not start ingestion",
-            );
+            toast.error(apiError(e, "Could not start ingestion"));
             // Rejected by the cooldown: our clock disagrees with the server's, so take theirs.
             if (e instanceof ApiError && e.status === 429) {
                 const status = await api

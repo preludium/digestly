@@ -22,6 +22,7 @@ import {
     useToggleRead,
     useToggleStar,
 } from "@/hooks/useItems";
+import { apiError } from "@/lib/apiError";
 import { externalHref } from "@/lib/externalLink";
 import {
     formatDuration,
@@ -277,9 +278,11 @@ function VideoBody({ view }: { view: Item & Partial<ItemDetail> }) {
 
             {/* 2. Collapsible transcript */}
             <div className="rounded-md border border-border">
-                <button
+                <Button
                     type="button"
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium"
+                    variant="plain"
+                    size="inline"
+                    className="w-full justify-between px-3 py-2 font-medium"
                     onClick={() => setShowTranscript((s) => !s)}
                 >
                     📄{" "}
@@ -292,7 +295,7 @@ function VideoBody({ view }: { view: Item & Partial<ItemDetail> }) {
                             showTranscript && "rotate-180",
                         )}
                     />
-                </button>
+                </Button>
                 {showTranscript && (
                     <div className="border-t border-border px-3 py-2 text-sm text-muted-foreground">
                         {view.transcript_text ? (
@@ -324,10 +327,7 @@ function SummarySlot({ view }: { view: Item & Partial<ItemDetail> }) {
         summarize.mutate(
             { id: view.id, force },
             {
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not summarize",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not summarize")),
             },
         );
 

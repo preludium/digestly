@@ -2,6 +2,7 @@ import { RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { SETTINGS_TILE_CLASS } from "@/components/common/SettingsTile";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -26,6 +27,7 @@ import {
     useUnsubscribe,
     useUpdateFeed,
 } from "@/hooks/useFeeds";
+import { apiError } from "@/lib/apiError";
 import {
     FETCH_INTERVAL_OPTIONS,
     formatDateTime,
@@ -33,6 +35,7 @@ import {
     nearestFetchIntervalSecs,
 } from "@/lib/format";
 import type { ContentType, Feed } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { sortCategoriesOtherLast } from "@/routes/manage.helpers";
 
 /** Feed settings / edit (prompt.md §9.4). Controlled by the caller; `feed` null hides it. */
@@ -100,10 +103,7 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
                     toast.success("Feed updated");
                     onClose();
                 },
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not save",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not save")),
             },
         );
     };
@@ -215,7 +215,12 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
             )}
 
             <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3.5">
+                <div
+                    className={cn(
+                        SETTINGS_TILE_CLASS,
+                        "flex items-center justify-between gap-3",
+                    )}
+                >
                     <Label htmlFor="fulltext" className="text-sm font-normal">
                         Fetch full article text
                     </Label>
@@ -225,7 +230,12 @@ function EditBody({ feed, onClose }: { feed: Feed; onClose: () => void }) {
                         onCheckedChange={setFullText}
                     />
                 </div>
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3.5">
+                <div
+                    className={cn(
+                        SETTINGS_TILE_CLASS,
+                        "flex items-center justify-between gap-3",
+                    )}
+                >
                     <Label htmlFor="paused" className="text-sm font-normal">
                         Pause this feed (stop showing new items)
                     </Label>

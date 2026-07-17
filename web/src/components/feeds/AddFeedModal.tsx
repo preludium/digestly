@@ -2,6 +2,8 @@ import { ChevronDown, Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SECTION_HEADER_CLASS } from "@/components/common/PageHeadings";
+import { SETTINGS_TILE_CLASS } from "@/components/common/SettingsTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,6 +33,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useCategories, useCreateCategory } from "@/hooks/useCategories";
 import { useDiscover, useSubscribe } from "@/hooks/useFeeds";
+import { apiError } from "@/lib/apiError";
 import {
     DEFAULT_FETCH_INTERVAL_SECS,
     FETCH_INTERVAL_OPTIONS,
@@ -225,11 +228,7 @@ function ConfigureStep({
                 setNewCategory("");
             },
             onError: (e) =>
-                toast.error(
-                    e instanceof Error
-                        ? e.message
-                        : "Could not create category",
-                ),
+                toast.error(apiError(e, "Could not create category")),
         });
     };
 
@@ -255,10 +254,7 @@ function ConfigureStep({
                     toast.success("Feed added");
                     onDone();
                 },
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not subscribe",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not subscribe")),
             },
         );
     };
@@ -380,7 +376,12 @@ function ConfigureStep({
             )}
 
             <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                <CollapsibleTrigger className="flex w-full items-center gap-1.5 border-b border-border pb-2 text-[13px] font-bold tracking-wide text-muted-foreground transition-colors hover:text-foreground">
+                <CollapsibleTrigger
+                    className={cn(
+                        SECTION_HEADER_CLASS,
+                        "flex w-full items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground",
+                    )}
+                >
                     <ChevronDown
                         className={cn(
                             "size-4 shrink-0 transition-transform duration-200",
@@ -411,7 +412,12 @@ function ConfigureStep({
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-3.5">
+                    <div
+                        className={cn(
+                            SETTINGS_TILE_CLASS,
+                            "flex items-center justify-between gap-3",
+                        )}
+                    >
                         <Label
                             htmlFor="fulltext"
                             className="text-sm font-normal"

@@ -108,9 +108,11 @@ function AccountMenu({ user }: { user: User }) {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <button
+                <Button
                     type="button"
-                    className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2.5 hover:bg-muted hover:cursor-pointer"
+                    variant="ghost"
+                    size="inline"
+                    className="rounded-full py-1 pl-1 pr-2.5"
                     aria-label="Account menu"
                 >
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
@@ -119,7 +121,7 @@ function AccountMenu({ user }: { user: User }) {
                     <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">
                         {user.username}
                     </span>
-                </button>
+                </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
                 <DropdownMenuItem

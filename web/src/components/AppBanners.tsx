@@ -1,5 +1,6 @@
 import { RefreshCw, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { applyServiceWorkerUpdate } from "@/lib/pwa";
 import { useOutboxSync } from "@/lib/sync";
 
@@ -51,14 +52,16 @@ export function AppBanners() {
                 </div>
             )}
             {updateReady && (
-                <button
+                <Button
                     type="button"
+                    variant="banner"
+                    size="inline"
+                    className="px-3 py-1.5"
                     onClick={applyServiceWorkerUpdate}
-                    className="flex w-full items-center justify-center gap-2 bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
                 >
                     <RefreshCw className="size-3.5" /> A new version is
                     available - tap to update.
-                </button>
+                </Button>
             )}
         </div>
     );
