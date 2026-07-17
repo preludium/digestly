@@ -19,6 +19,7 @@ use tracing::{info, warn};
 use crate::ai::provider::{self, ResolvedProvider};
 use crate::ai::{budget, client, AiParams, LlmRequest};
 use crate::notify;
+use crate::settings::{get_bool, get_int, get_str};
 
 /// Cap on the number of items whose titles are fed to the per-category AI prompt.
 const MAX_ITEMS_PER_CATEGORY_PROMPT: usize = 40;
@@ -560,30 +561,6 @@ async fn tick(pool: &SqlitePool, http: &Client, enc_key: &[u8; 32]) -> Result<()
 
 fn fmt_dt(dt: chrono::DateTime<Utc>) -> String {
     dt.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-async fn get_str(pool: &SqlitePool, key: &str) -> Option<String> {
-    sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .map(|r| r.get::<String, _>("value"))
-}
-
-async fn get_int(pool: &SqlitePool, key: &str, default: i64) -> i64 {
-    get_str(pool, key)
-        .await
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
-
-async fn get_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
-    get_str(pool, key)
-        .await
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(default)
 }
 
 async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<()> {

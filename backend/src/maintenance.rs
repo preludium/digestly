@@ -7,6 +7,8 @@ use anyhow::Result;
 use sqlx::{Row, SqlitePool};
 use tracing::{info, warn};
 
+use crate::settings::get_int;
+
 /// How often the maintenance task runs.
 const INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
 
@@ -20,8 +22,8 @@ pub struct RetentionPolicy {
 impl RetentionPolicy {
     pub async fn load(pool: &SqlitePool) -> Self {
         Self {
-            max_age_days: get_int(pool, "retention.max_age_days").await.max(0),
-            max_per_feed: get_int(pool, "retention.max_per_feed").await.max(0),
+            max_age_days: get_int(pool, "retention.max_age_days", 0).await.max(0),
+            max_per_feed: get_int(pool, "retention.max_per_feed", 0).await.max(0),
         }
     }
 }
@@ -96,7 +98,7 @@ const TRANSCRIPT_REFLOW_KEY: &str = "maintenance.transcript_reflow_v1";
 /// `&#39;` in the UI). Rewrites them via `ai::transcript::readable_transcript` (pure text
 /// transform, no network), then sets a flag so this never runs again. Returns rows rewritten.
 pub async fn reflow_transcripts_once(pool: &SqlitePool) -> Result<u64> {
-    if get_int(pool, TRANSCRIPT_REFLOW_KEY).await == 1 {
+    if get_int(pool, TRANSCRIPT_REFLOW_KEY, 0).await == 1 {
         return Ok(0);
     }
     let rows = sqlx::query(
@@ -130,17 +132,6 @@ pub async fn reflow_transcripts_once(pool: &SqlitePool) -> Result<u64> {
         info!(reflowed, "stored transcripts reflowed for readability");
     }
     Ok(reflowed)
-}
-
-async fn get_int(pool: &SqlitePool, key: &str) -> i64 {
-    sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|r| r.get::<String, _>("value").parse().ok())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

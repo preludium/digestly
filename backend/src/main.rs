@@ -18,6 +18,7 @@ mod query;
 mod routes;
 mod seed;
 mod seed_demo;
+mod settings;
 
 #[cfg(test)]
 mod isolation_tests;

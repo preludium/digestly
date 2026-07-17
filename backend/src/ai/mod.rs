@@ -20,6 +20,8 @@ pub mod transcript_worker;
 use axum::async_trait;
 use serde::Serialize;
 
+use crate::settings::get_int;
+
 /// The two supported API styles (matches the `api_style` CHECK constraint, prompt.md §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiStyle {
@@ -90,18 +92,6 @@ impl AiParams {
                 .max(0),
         }
     }
-}
-
-async fn get_int(pool: &sqlx::SqlitePool, key: &str, default: i64) -> i64 {
-    use sqlx::Row;
-    sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|r| r.get::<String, _>("value").parse().ok())
-        .unwrap_or(default)
 }
 
 /// A single LLM completion request (one system + one user turn is all summarization needs).
