@@ -25,6 +25,7 @@ web/.vite/
 # Playwright e2e (web/)
 web/test-results/
 web/playwright-report/
+web/ui-screenshots/
 backend/.e2e-data/
 
 # Node (root, if ever used)
