@@ -41,6 +41,7 @@ import {
     useUpdateAiSettings,
 } from "@/hooks/useAi";
 import { useAutosave } from "@/hooks/useAutosave";
+import { apiError } from "@/lib/apiError";
 import type { AiProvider } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -117,8 +118,7 @@ function VideoProviderPicker() {
                         ? "Video summaries use transcripts again"
                         : "Video summaries now go to Gemini",
                 ),
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         });
     };
 
@@ -192,10 +192,7 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
             { id: provider.id, model },
             {
                 onSuccess: () => toast("Model updated"),
-                onError: (e) =>
-                    toast.error(
-                        e instanceof Error ? e.message : "Could not save",
-                    ),
+                onError: (e) => toast.error(apiError(e, "Could not save")),
             },
         );
     };
@@ -206,17 +203,13 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                 r.ok
                     ? toast.success("Connection OK")
                     : toast.error(`Test failed: ${r.error ?? "unknown error"}`),
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Test failed"),
+            onError: (e) => toast.error(apiError(e, "Test failed")),
         });
 
     const del = () => {
         remove.mutate(provider.id, {
             onSuccess: () => toast("Provider deleted"),
-            onError: (e) =>
-                toast.error(
-                    e instanceof Error ? e.message : "Could not delete",
-                ),
+            onError: (e) => toast.error(apiError(e, "Could not delete")),
         });
     };
 
@@ -351,8 +344,7 @@ function GlobalParams() {
 
     useAutosave(form, (f) =>
         update.mutate(f, {
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         }),
     );
 

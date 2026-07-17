@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SectionHeader } from "@/components/common/PageHeadings";
 import {
     NumField,
     SETTINGS_TILE_CLASS,
@@ -16,6 +17,7 @@ import {
     usePurgeRetention,
     useUpdateIngestionSettings,
 } from "@/hooks/useSettings";
+import { apiError } from "@/lib/apiError";
 import type { IngestionSettings as Ingestion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -35,8 +37,7 @@ export function IngestionSettings() {
 
     useAutosave(form, (f) =>
         update.mutate(f, {
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         }),
     );
 
@@ -57,17 +58,14 @@ export function IngestionSettings() {
                 toast.success(
                     `Deleted ${r.removed} item${r.removed === 1 ? "" : "s"}`,
                 ),
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Delete failed"),
+            onError: (e) => toast.error(apiError(e, "Delete failed")),
         });
     };
 
     return (
         <div className="space-y-5">
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Fetching
-                </h3>
+                <SectionHeader>Fetching</SectionHeader>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <NumField
                         label="Global concurrency"
@@ -129,9 +127,7 @@ export function IngestionSettings() {
             </div>
 
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Retention
-                </h3>
+                <SectionHeader>Retention</SectionHeader>
                 <div className="grid gap-4 sm:grid-cols-2">
                     <NumField
                         label="Purge older than"
@@ -153,9 +149,9 @@ export function IngestionSettings() {
             </div>
 
             <div className="space-y-3 border-border">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide text-destructive">
+                <SectionHeader className="text-destructive">
                     Danger zone
-                </h3>
+                </SectionHeader>
                 <div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5 sm:flex-row sm:items-center sm:justify-between">
                     <TileTitle
                         title="Delete old items"

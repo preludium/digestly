@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
+import { SectionHeader } from "@/components/common/PageHeadings";
 import {
     SETTINGS_TILE_CLASS,
     TileTitle,
@@ -24,6 +25,7 @@ import {
     useOauthStatus,
     useOauthSync,
 } from "@/hooks/useOauth";
+import { apiError } from "@/lib/apiError";
 import { formatDateTime, relativeTime } from "@/lib/format";
 import type { OAuthConnection, OAuthProvider } from "@/lib/types";
 
@@ -75,9 +77,7 @@ export function ConnectedAccounts() {
 
     return (
         <div className="space-y-3.5">
-            <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                Connected accounts
-            </h3>
+            <SectionHeader>Connected accounts</SectionHeader>
             <p className="text-[13px] text-muted-foreground">
                 Link YouTube or Reddit to import the channels/subreddits you
                 follow. Syncing adds only the ones you don't already have - you
@@ -117,8 +117,7 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
                     toast.success(
                         `Added ${r.added}, skipped ${r.skipped} already-added`,
                     ),
-                onError: (e) =>
-                    toast.error(e instanceof Error ? e.message : "Sync failed"),
+                onError: (e) => toast.error(apiError(e, "Sync failed")),
             },
         );
 
@@ -146,13 +145,15 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
                                     {conn.last_sync_at ? (
                                         <>
                                             Last synced{" "}
-                                            <button
+                                            <Button
                                                 type="button"
+                                                variant="linkMuted"
+                                                size="inline"
+                                                className="decoration-border decoration-dotted underline-offset-4"
                                                 onClick={(e) => {
                                                     e.preventDefault();
                                                     setShowFullSync((v) => !v);
                                                 }}
-                                                className="underline decoration-border decoration-dotted underline-offset-4"
                                             >
                                                 {showFullSync
                                                     ? formatDateTime(
@@ -161,7 +162,7 @@ function ProviderRow({ conn }: { conn: OAuthConnection }) {
                                                     : relativeTime(
                                                           conn.last_sync_at,
                                                       )}
-                                            </button>
+                                            </Button>
                                         </>
                                     ) : (
                                         "Not synced yet"

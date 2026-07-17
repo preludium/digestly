@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import {
+    SECTION_HEADER_CLASS,
+    SectionHeader,
+} from "@/components/common/PageHeadings";
+import {
     SETTINGS_TILE_CLASS,
     TileTitle,
 } from "@/components/common/SettingsTile";
@@ -24,6 +28,7 @@ import {
     useTestNotification,
     useUpdateNotifications,
 } from "@/hooks/useNotifications";
+import { apiError } from "@/lib/apiError";
 import type { PutNotifications } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -77,8 +82,7 @@ export function NotificationsSettings() {
                     setToken("");
                 }
             },
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Could not save"),
+            onError: (e) => toast.error(apiError(e, "Could not save")),
         });
     });
 
@@ -101,11 +105,7 @@ export function NotificationsSettings() {
                     setHasToken(false);
                 },
                 onError: (e) =>
-                    toast.error(
-                        e instanceof Error
-                            ? e.message
-                            : "Could not clear token",
-                    ),
+                    toast.error(apiError(e, "Could not clear token")),
             },
         );
 
@@ -115,16 +115,13 @@ export function NotificationsSettings() {
                 r.ok
                     ? toast.success("Test push sent")
                     : toast.error(`Test failed: ${r.error ?? "unknown error"}`),
-            onError: (e) =>
-                toast.error(e instanceof Error ? e.message : "Test failed"),
+            onError: (e) => toast.error(apiError(e, "Test failed")),
         });
 
     return (
         <div className="space-y-5">
             <div className="space-y-3.5">
-                <h3 className="border-b border-border pb-2 text-[13px] font-bold tracking-wide">
-                    Channel
-                </h3>
+                <SectionHeader>Channel</SectionHeader>
                 <p className="text-[13px] text-muted-foreground">
                     Digestly pushes to your own ntfy server (self-hosted or
                     ntfy.sh).
@@ -167,13 +164,14 @@ export function NotificationsSettings() {
                             autoComplete="off"
                         />
                         {hasToken && (
-                            <button
+                            <Button
                                 type="button"
-                                className="text-xs text-muted-foreground underline"
+                                variant="linkMuted"
+                                size="inline"
                                 onClick={clearToken}
                             >
                                 Clear saved token
-                            </button>
+                            </Button>
                         )}
                     </div>
                     <div className="space-y-1.5">
@@ -200,7 +198,7 @@ export function NotificationsSettings() {
             </div>
 
             <fieldset className="space-y-3">
-                <legend className="w-full border-b border-border pb-2 text-[13px] font-bold tracking-wide">
+                <legend className={cn(SECTION_HEADER_CLASS, "w-full")}>
                     Notify me
                 </legend>
                 <NotifyTile
