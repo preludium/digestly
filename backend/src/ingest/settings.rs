@@ -1,7 +1,9 @@
 //! Ingestion tunables (prompt.md §8 "Admin-only ingestion"). Stored in `app_settings` so the
 //! Phase 7 admin UI can change them without env/redeploys; code holds the defaults. No env vars.
 
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
+
+use crate::settings::{get_bool, get_int};
 
 /// Descriptive UA - Reddit blocks generic/empty agents (prompt.md §3).
 pub const USER_AGENT: &str =
@@ -78,28 +80,4 @@ impl IngestSettings {
                 .max(0),
         }
     }
-}
-
-async fn get_str(pool: &SqlitePool, key: &str) -> Option<String> {
-    sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .map(|r| r.get::<String, _>("value"))
-}
-
-async fn get_int(pool: &SqlitePool, key: &str, default: i64) -> i64 {
-    get_str(pool, key)
-        .await
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
-
-async fn get_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
-    get_str(pool, key)
-        .await
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(default)
 }
