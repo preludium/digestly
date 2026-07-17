@@ -13,11 +13,11 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { NameDialog } from "@/components/common/NameDialog";
-import { AddProviderModal } from "@/components/settings/AddProviderModal";
 import {
     NumField,
     SETTINGS_TILE_CLASS,
-} from "@/components/settings/SettingsTile";
+} from "@/components/common/SettingsTile";
+import { AddProviderModal } from "@/components/settings/AddProviderModal";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
