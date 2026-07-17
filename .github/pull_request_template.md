@@ -22,14 +22,15 @@ None.
 What you actually ran, with real output/results - not "should work". State explicitly what could
 NOT be verified locally and why.
 
+CI already runs `cargo fmt`/`clippy`/`cargo test`, `pnpm run ci`/`build`/`test`, and e2e on every
+PR - don't re-assert those here. This checklist is for what CI can't check.
+
 A green suite is evidence about the code, never about the world: tests written from a premise
 restate that premise, they do not test it. So if this PR relies on external behavior (browser, OS,
 third-party API, library), link the doc that establishes it - see the issue's "External behavior
 this relies on".
 -->
 
-- [ ] `cargo test`
-- [ ] `cd web && pnpm build && pnpm test && pnpm check`
 - [ ] Exercised the change in the running app:
 - [ ] External behavior this relies on is verified against docs (or marked ASSUMPTION in the issue):
 
