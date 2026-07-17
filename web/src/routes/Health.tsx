@@ -1,27 +1,12 @@
-import {
-    HeartPulse,
-    MoreVertical,
-    Pencil,
-    RefreshCw,
-    Search as SearchIcon,
-    Trash2,
-} from "lucide-react";
+import { HeartPulse, Search as SearchIcon } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
 import { PageTitle } from "@/components/common/PageHeadings";
 import { FeedEditModal } from "@/components/feeds/FeedEditModal";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { HealthCard } from "@/components/health/HealthCard";
+import { HealthRow } from "@/components/health/HealthRow";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -34,41 +19,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
     Table,
     TableBody,
-    TableCell,
     TableHead,
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import {
-    useFeedHealth,
-    useFeeds,
-    useRefreshFeed,
-    useUnsubscribe,
-} from "@/hooks/useFeeds";
-import { formatDateTime, kindIcon, relativeTime } from "@/lib/format";
-import type { Feed, FeedHealth, FeedStatus } from "@/lib/types";
-
-const STATUS_BADGE: Record<
-    FeedStatus,
-    { label: string; variant: "success" | "warning" | "destructive" }
-> = {
-    ok: { label: "Ok", variant: "success" },
-    failing: { label: "Failing", variant: "warning" },
-    disabled: { label: "Disabled", variant: "destructive" },
-};
-
-function YoutubeIcon({ className }: { className?: string }) {
-    return (
-        <svg
-            className={className}
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-label="YouTube"
-        >
-            <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z" />
-        </svg>
-    );
-}
+import { useFeedHealth, useFeeds } from "@/hooks/useFeeds";
+import type { Feed, FeedStatus } from "@/lib/types";
 
 /** Feed health / diagnostics (prompt.md §9.6). Failing/disabled feeds surfaced, never dropped. */
 export function Health() {
@@ -210,174 +166,5 @@ export function Health() {
 
             <FeedEditModal feed={editing} onClose={() => setEditing(null)} />
         </div>
-    );
-}
-
-function FeedIcon({ row }: { row: FeedHealth }) {
-    return row.kind === "youtube" ? (
-        <YoutubeIcon className="size-5 shrink-0 text-destructive" />
-    ) : (
-        <span className="text-lg">{kindIcon(row.kind)}</span>
-    );
-}
-
-function LastFetchToggle({ row }: { row: FeedHealth }) {
-    const [showFull, setShowFull] = useState(false);
-    return (
-        <button
-            type="button"
-            onClick={() => setShowFull((v) => !v)}
-            title={formatDateTime(row.last_fetch_at)}
-            className="whitespace-nowrap underline decoration-border decoration-dotted underline-offset-4"
-        >
-            {showFull
-                ? formatDateTime(row.last_fetch_at)
-                : relativeTime(row.last_fetch_at) || "Never"}
-        </button>
-    );
-}
-
-function ActionsMenu({
-    row,
-    onEdit,
-}: {
-    row: FeedHealth;
-    onEdit: (id: number) => void;
-}) {
-    const refresh = useRefreshFeed();
-    const unsubscribe = useUnsubscribe();
-    const [removing, setRemoving] = useState<FeedHealth | null>(null);
-
-    return (
-        <>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" aria-label="Actions">
-                        <MoreVertical className="size-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                        disabled={refresh.isPending}
-                        onClick={() =>
-                            refresh.mutate(row.id, {
-                                onSuccess: () =>
-                                    toast.success(
-                                        row.status === "disabled"
-                                            ? "Re-enabled"
-                                            : "Retrying…",
-                                    ),
-                            })
-                        }
-                    >
-                        <RefreshCw className="size-4" />{" "}
-                        {row.status === "disabled" ? "Re-enable" : "Retry"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onEdit(row.id)}>
-                        <Pencil className="size-4" /> Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                        onClick={() => setRemoving(row)}
-                    >
-                        <Trash2 className="size-4" /> Remove
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-            <ConfirmDialog
-                open={!!removing}
-                onOpenChange={(v) => !v && setRemoving(null)}
-                title={`Unsubscribe from "${row.title}"?`}
-                confirmLabel="Unsubscribe"
-                destructive
-                onConfirm={() => {
-                    // biome-ignore lint/style/noNonNullAssertion: existing baseline
-                    unsubscribe.mutate(removing!.id, {
-                        onSuccess: () => {
-                            toast.success("Unsubscribed");
-                            setRemoving(null);
-                        },
-                    });
-                }}
-            />
-        </>
-    );
-}
-
-function HealthCard({
-    row,
-    onEdit,
-}: {
-    row: FeedHealth;
-    onEdit: (id: number) => void;
-}) {
-    const badge = STATUS_BADGE[row.status];
-
-    return (
-        <li className="rounded-lg border border-border bg-card p-3 shadow-sm">
-            <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                    <FeedIcon row={row} />
-                    <div className="min-w-0">
-                        <p className="truncate font-medium">{row.title}</p>
-                        {row.last_error && (
-                            <p className="truncate text-xs text-destructive">
-                                {row.last_error}
-                            </p>
-                        )}
-                    </div>
-                </div>
-                <ActionsMenu row={row} onEdit={onEdit} />
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <Badge variant={badge.variant}>{badge.label}</Badge>
-                <span>
-                    Last fetch: <LastFetchToggle row={row} />
-                </span>
-                <span>Fails: {row.failure_count}</span>
-            </div>
-        </li>
-    );
-}
-
-function HealthRow({
-    row,
-    onEdit,
-}: {
-    row: FeedHealth;
-    onEdit: (id: number) => void;
-}) {
-    const badge = STATUS_BADGE[row.status];
-
-    return (
-        <TableRow>
-            <TableCell>
-                <div className="flex items-center gap-2">
-                    <FeedIcon row={row} />
-                    <div className="min-w-0">
-                        <p className="truncate font-medium">{row.title}</p>
-                        {row.last_error && (
-                            <p className="truncate text-xs text-destructive">
-                                {row.last_error}
-                            </p>
-                        )}
-                    </div>
-                </div>
-            </TableCell>
-            <TableCell>
-                <Badge variant={badge.variant}>{badge.label}</Badge>
-            </TableCell>
-            <TableCell className="text-muted-foreground">
-                <LastFetchToggle row={row} />
-            </TableCell>
-            <TableCell className="text-muted-foreground">
-                {row.failure_count}
-            </TableCell>
-            <TableCell>
-                <div className="flex justify-end">
-                    <ActionsMenu row={row} onEdit={onEdit} />
-                </div>
-            </TableCell>
-        </TableRow>
     );
 }
