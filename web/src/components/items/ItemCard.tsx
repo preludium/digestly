@@ -12,17 +12,59 @@ import type { Item } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { RedditLogo } from "./RedditLogo";
 
-function Thumb({ item }: { item: Item }) {
-    const [errored, setErrored] = useState(false);
+/** Blogs only, https only, self-hosted - never a third-party favicon service. */
+export function faviconOf(item: Item): string | null {
+    if (item.kind === "reddit" || item.kind === "youtube") return null;
+    if (!item.site_url) return null;
+    try {
+        const u = new URL(item.site_url);
+        if (u.protocol !== "https:") return null;
+        return `${u.origin}/favicon.ico`;
+    } catch {
+        return null;
+    }
+}
 
-    if (item.image_url && !errored) {
+/** Ordered fallback chain: item image (cover) → feed icon → site favicon (both small/contain). */
+function imageCandidates(item: Item): { src: string; contain: boolean }[] {
+    const candidates: { src: string; contain: boolean }[] = [];
+    if (item.image_url)
+        candidates.push({ src: item.image_url, contain: false });
+    if (item.feed_icon_url)
+        candidates.push({ src: item.feed_icon_url, contain: true });
+    const favicon = faviconOf(item);
+    if (favicon) candidates.push({ src: favicon, contain: true });
+    return candidates;
+}
+
+function Thumb({ item }: { item: Item }) {
+    const [index, setIndex] = useState(0);
+    const candidates = imageCandidates(item);
+    const candidate = candidates[index];
+
+    if (candidate) {
+        if (candidate.contain) {
+            return (
+                <div className="flex size-full items-center justify-center">
+                    <img
+                        key={candidate.src}
+                        src={candidate.src}
+                        alt=""
+                        loading="lazy"
+                        className="size-10 object-contain"
+                        onError={() => setIndex((i) => i + 1)}
+                    />
+                </div>
+            );
+        }
         return (
             <img
-                src={item.image_url}
+                key={candidate.src}
+                src={candidate.src}
                 alt=""
                 loading="lazy"
                 className="size-full object-cover"
-                onError={() => setErrored(true)}
+                onError={() => setIndex((i) => i + 1)}
             />
         );
     }

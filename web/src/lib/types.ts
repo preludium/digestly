@@ -114,6 +114,8 @@ export interface Item {
     upvote_ratio: number | null;
     transcript_status: TranscriptStatus;
     has_summary: boolean;
+    site_url: string | null;
+    feed_icon_url: string | null;
 }
 
 /** Full item for the preview surface (prompt.md §9.1a, `GET /api/items/{id}`). */
@@ -121,7 +123,6 @@ export interface ItemDetail extends Item {
     content_html: string | null;
     transcript_text: string | null;
     summary: string | null;
-    site_url: string | null;
 }
 
 export interface ItemsPage {

@@ -142,6 +142,8 @@ struct ItemDto {
     upvote_ratio: Option<f64>,
     transcript_status: String,
     has_summary: bool,
+    site_url: Option<String>,
+    feed_icon_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -187,7 +189,8 @@ async fn list_items(
                 c.name AS category, \
                 COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
                 COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
-                (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count",
+                (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count, \
+                fe.site_url AS site_url, fe.icon_url AS feed_icon_url",
     );
     push_scope(&mut qb, user.id, &filters);
     qb.push(" ORDER BY ");
@@ -232,6 +235,8 @@ fn row_to_item(r: &sqlx::sqlite::SqliteRow) -> ItemDto {
         upvote_ratio: r.get("upvote_ratio"),
         transcript_status: r.get("transcript_status"),
         has_summary: r.get::<i64, _>("summary_count") > 0,
+        site_url: r.get("site_url"),
+        feed_icon_url: r.get("feed_icon_url"),
     }
 }
 
@@ -259,7 +264,6 @@ struct ItemDetailDto {
     content_html: Option<String>,
     transcript_text: Option<String>,
     summary: Option<String>,
-    site_url: Option<String>,
 }
 
 /// `GET /api/items/{id}` - full item for the preview surface (§9.1a). 404 unless the caller
@@ -277,6 +281,7 @@ async fn get_item(
                 i.duration_secs AS duration_secs, i.score AS score, i.comments_count AS comments_count, \
                 i.upvote_ratio AS upvote_ratio, i.transcript_status AS transcript_status, \
                 i.transcript_text AS transcript_text, fe.kind AS kind, fe.site_url AS site_url, \
+                fe.icon_url AS feed_icon_url, \
                 s.content_type AS content_type, c.name AS category, \
                 COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
                 COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
@@ -301,7 +306,6 @@ async fn get_item(
         content_html: row.get("content_html"),
         transcript_text: row.get("transcript_text"),
         summary: row.get("summary"),
-        site_url: row.get("site_url"),
         item: row_to_item(&row),
     };
     Ok(Json(detail))
