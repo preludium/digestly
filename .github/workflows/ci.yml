@@ -63,18 +63,9 @@ jobs:
         working-directory: web
         run: pnpm test
 
-  e2e:
-    name: E2E (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+  e2e-build:
+    name: Build E2E assets
     runs-on: ubuntu-latest
-    # Each shard pays a full cargo build + frontend build before a single test runs; the tests
-    # themselves are seconds. A hung backend/browser should fail in minutes, not occupy the
-    # runner for hours. Starting point - tune against measured CI wall-clock.
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        shardIndex: [1, 2, 3, 4]
-        shardTotal: [4]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -109,6 +100,60 @@ jobs:
 
       - name: Build backend
         run: cargo build --release --manifest-path backend/Cargo.toml --locked
+
+      # upload-artifact does not preserve executable permissions, so bundle the outputs in a tar
+      # archive before uploading. The E2E shards extract it before launching the backend binary.
+      - name: Package E2E build outputs
+        run: tar -cf e2e-build.tar web/dist backend/target/release/digestly
+
+      - name: Upload E2E build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-build
+          path: e2e-build.tar
+          retention-days: 1
+
+  e2e:
+    name: E2E (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    needs: e2e-build
+    runs-on: ubuntu-latest
+    # Each shard pays a full cargo build + frontend build before a single test runs; the tests
+    # themselves are seconds. A hung backend/browser should fail in minutes, not occupy the
+    # runner for hours. Starting point - tune against measured CI wall-clock.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Download E2E build outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-build
+          path: .
+
+      - name: Extract E2E build outputs
+        run: tar -xf e2e-build.tar && rm e2e-build.tar
 
       - name: Install Playwright browsers
         working-directory: web
