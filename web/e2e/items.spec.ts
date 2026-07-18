@@ -195,5 +195,50 @@ test.describe("items", () => {
                 page.getByText("Based only on the video description"),
             ).toBeVisible();
         });
+
+        // issue #45: the "not yet fetched" transcript variant - transcript_status "none" with no
+        // transcript_text. Reachable without mocking right after ingest (the transcript worker
+        // hasn't run yet), but that window is a race against a background task; mocking the
+        // detail response keeps this deterministic, matching the two siblings above.
+        test("shows the not-yet-fetched transcript copy when captions haven't been checked", async ({
+            page,
+        }) => {
+            const items = await page.request.get("/api/items?type=video");
+            const { id: itemId } = (
+                (await items.json()) as {
+                    items: Array<{ id: number }>;
+                }
+            ).items[0];
+            const detail = await page.request.get(`/api/items/${itemId}`);
+            const video = (await detail.json()) as Record<string, unknown>;
+            const videoTitle = String(video.title);
+
+            await page.route(`**/api/items/${itemId}`, async (route) => {
+                await route.fulfill({
+                    json: {
+                        ...video,
+                        transcript_status: "none",
+                        transcript_text: null,
+                    },
+                });
+            });
+
+            await page
+                .getByRole("button")
+                .filter({ has: page.locator("h3", { hasText: videoTitle }) })
+                .click();
+
+            const transcript = page.getByRole("button", { name: "Transcript" });
+            // Unlike the "unavailable" variant, no "No captions available" label sits next to
+            // the button - the collapsible only reveals its copy once expanded.
+            await expect(transcript).not.toContainText("No captions available");
+            await expect(
+                page.getByText("The transcript hasn’t been fetched yet."),
+            ).toBeHidden();
+            await transcript.click();
+            await expect(
+                page.getByText("The transcript hasn’t been fetched yet."),
+            ).toBeVisible();
+        });
     });
 });
