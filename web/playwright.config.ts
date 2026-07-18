@@ -74,7 +74,7 @@ export default defineConfig({
             // failure (every ingest/digest/AI/ntfy flow is backend behavior) - `tee` captures it to
             // a file without losing the local terminal output.
             command:
-                "rm -rf .e2e-data && mkdir -p ../web/e2e-logs && cargo run --release 2>&1 | tee ../web/e2e-logs/backend.log",
+                "rm -rf .e2e-data && mkdir -p ../web/e2e-logs && ./target/release/digestly 2>&1 | tee ../web/e2e-logs/backend.log",
             cwd: "../backend",
             url: "http://localhost:8099/api/auth/registration",
             reuseExistingServer: false,
