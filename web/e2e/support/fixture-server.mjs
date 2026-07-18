@@ -11,6 +11,7 @@
 // the `webServer` entry spawns. The listen() call below is guarded to only run when this file is
 // executed directly, so that config-load import doesn't itself bind the port.
 import http from "node:http";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PORT = Number(process.env.FIXTURE_PORT ?? 8098);
@@ -22,6 +23,8 @@ export const ATOM_FEED_TITLE = "E2E Fixture Atom Feed";
 export const ATOM_ITEM_TITLE = "E2E Fixture Atom Item One";
 export const JSON_FEED_TITLE = "E2E Fixture JSON Feed";
 export const JSON_ITEM_TITLE = "E2E Fixture JSON Item One";
+export const SUMMARY_ITEM_TITLE = "E2E Summary Fixture Item";
+export const YOUTUBE_ITEM_TITLE = "E2E YouTube Fixture Video";
 
 function rssBody() {
     const pubDate = new Date().toUTCString();
@@ -105,6 +108,42 @@ function jsonFeedBody() {
     );
 }
 
+function summaryFeedBody() {
+    const datePublished = new Date().toISOString();
+    return JSON.stringify({
+        version: "https://jsonfeed.org/version/1.1",
+        title: "E2E Summary Fixture Feed",
+        items: [
+            {
+                id: "https://fixtures.example/summary/item",
+                url: "https://fixtures.example/summary/item",
+                title: SUMMARY_ITEM_TITLE,
+                content_text:
+                    "A plain-text fixture article that can be summarized.",
+                date_published: datePublished,
+            },
+        ],
+    });
+}
+
+function youtubeFeedBody() {
+    const updated = new Date().toISOString();
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>E2E YouTube Fixture Feed</title>
+  <link href="https://www.youtube.com/channel/e2e-fixture"/>
+  <updated>${updated}</updated>
+  <entry>
+    <title>${YOUTUBE_ITEM_TITLE}</title>
+    <link href="https://www.youtube.com/watch?v=e2efixtur01"/>
+    <id>yt:e2efixtur01</id>
+    <updated>${updated}</updated>
+    <summary>Video description used by the local YouTube fixture.</summary>
+  </entry>
+</feed>
+`;
+}
+
 const ROUTES = {
     "/health": () => ({ status: 200, contentType: "text/plain", body: "ok" }),
     "/rss.xml": () => ({
@@ -122,14 +161,126 @@ const ROUTES = {
         contentType: "application/feed+json",
         body: jsonFeedBody(),
     }),
+    "/summary.json": () => ({
+        status: 200,
+        contentType: "application/feed+json",
+        body: summaryFeedBody(),
+    }),
+    "/youtube.xml": () => ({
+        status: 200,
+        contentType: "application/atom+xml",
+        body: youtubeFeedBody(),
+    }),
 };
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-    const server = http.createServer((req, res) => {
+// Mutable, process-local AI fixture state. Specs configure this through the helper endpoints
+// below, so provider calls remain deterministic and never leave the e2e process.
+let aiResponses = {};
+let aiRequests = [];
+
+function json(res, status, body) {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+}
+
+function readJson(req) {
+    return new Promise((resolve) => {
+        let body = "";
+        req.on("data", (chunk) => {
+            body += chunk;
+        });
+        req.on("end", () => {
+            try {
+                resolve(body ? JSON.parse(body) : {});
+            } catch {
+                resolve({});
+            }
+        });
+    });
+}
+
+function aiResponse(model) {
+    return (
+        aiResponses[model] ?? {
+            status: 200,
+            text: `AI fixture summary from ${model}.`,
+        }
+    );
+}
+
+function respondOpenAi(res, model) {
+    const response = aiResponse(model);
+    if (response.status !== 200) {
+        json(res, response.status, {
+            error: { message: response.error ?? `fixture error from ${model}` },
+        });
+        return;
+    }
+    json(res, 200, {
+        choices: [{ message: { content: response.text } }],
+        usage: { total_tokens: 12 },
+    });
+}
+
+function respondGemini(res, model) {
+    const response = aiResponse(model);
+    if (response.status !== 200) {
+        json(res, response.status, {
+            error: { message: response.error ?? `fixture error from ${model}` },
+        });
+        return;
+    }
+    json(res, 200, {
+        candidates: [{ content: { parts: [{ text: response.text }] } }],
+        usageMetadata: { totalTokenCount: 12 },
+    });
+}
+
+if (
+    process.argv[1] &&
+    fileURLToPath(import.meta.url) === resolve(process.argv[1])
+) {
+    const server = http.createServer(async (req, res) => {
         const { pathname } = new URL(
             req.url ?? "/",
             `http://localhost:${PORT}`,
         );
+        if (pathname === "/ai-mock/reset" && req.method === "POST") {
+            aiResponses = {};
+            aiRequests = [];
+            json(res, 200, { ok: true });
+            return;
+        }
+        if (pathname === "/ai-mock/config" && req.method === "POST") {
+            const body = await readJson(req);
+            aiResponses = body.responses ?? {};
+            aiRequests = [];
+            json(res, 200, { ok: true });
+            return;
+        }
+        if (pathname === "/ai-mock/requests" && req.method === "GET") {
+            json(res, 200, { requests: aiRequests });
+            return;
+        }
+        if (
+            pathname === "/ai-mock/openai/chat/completions" &&
+            req.method === "POST"
+        ) {
+            const body = await readJson(req);
+            const model = body.model ?? "unknown";
+            aiRequests.push({ kind: "openai", model });
+            respondOpenAi(res, model);
+            return;
+        }
+        const geminiMatch = pathname.match(
+            /^\/ai-mock\/models\/([^:]+):generateContent$/,
+        );
+        if (geminiMatch && req.method === "POST") {
+            const model = decodeURIComponent(geminiMatch[1]);
+            aiRequests.push({ kind: "gemini", model });
+            respondGemini(res, model);
+            return;
+        }
         const route = ROUTES[pathname];
         if (!route) {
             res.writeHead(404, { "Content-Type": "text/plain" });

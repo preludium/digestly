@@ -7,7 +7,12 @@
 // storageState needed. A second identity (e.g. admin) must use `request.newContext({ baseURL })`
 // so its `hf_session` never clobbers the page user's.
 import { type APIRequestContext, request } from "@playwright/test";
-import { RSS_FEED_TITLE, RSS_ITEM_TITLE } from "./fixture-server.mjs";
+import {
+    RSS_FEED_TITLE,
+    RSS_ITEM_TITLE,
+    SUMMARY_ITEM_TITLE,
+    YOUTUBE_ITEM_TITLE,
+} from "./fixture-server.mjs";
 
 export const APP_URL = "http://localhost:8099";
 
@@ -20,8 +25,24 @@ export const FIXTURE = {
     rss: "http://localhost:8098/rss.xml",
     atom: "http://localhost:8098/atom.xml",
     json: "http://localhost:8098/feed.json",
+    summary: "http://localhost:8098/summary.json",
+    youtube: "http://localhost:8098/youtube.xml",
     rssFeedTitle: RSS_FEED_TITLE,
     rssItemTitle: RSS_ITEM_TITLE,
+    summaryItemTitle: SUMMARY_ITEM_TITLE,
+    aiBaseUrl: "http://localhost:8098/ai-mock/openai",
+};
+
+export type AiMockResponse = {
+    status: number;
+    text?: string;
+    error?: string;
+};
+
+export type AiProviderInput = {
+    name: string;
+    provider_type: string;
+    model: string;
 };
 
 let usernameCounter = 0;
@@ -42,6 +63,122 @@ async function ok(response: {
             `request to ${response.url()} failed with status ${response.status()}`,
         );
     }
+}
+
+/** A separate admin session keeps the browser user's session untouched during e2e setup. */
+export async function withAdmin<T>(
+    action: (admin: APIRequestContext) => Promise<T>,
+): Promise<T> {
+    const admin = await request.newContext({ baseURL: APP_URL });
+    try {
+        await loginAs(admin, ADMIN.username, ADMIN.password);
+        return await action(admin);
+    } finally {
+        await admin.dispose();
+    }
+}
+
+/** Configure the fixture server's local OpenAI/Gemini responses and clear its request log. */
+export async function configureAiMock(
+    request: APIRequestContext,
+    responses: Record<string, AiMockResponse>,
+): Promise<void> {
+    const response = await request.post(
+        "http://localhost:8098/ai-mock/config",
+        {
+            data: { responses },
+        },
+    );
+    await ok(response);
+}
+
+export async function aiMockRequests(
+    request: APIRequestContext,
+): Promise<Array<{ kind: string; model: string }>> {
+    const response = await request.get(
+        "http://localhost:8098/ai-mock/requests",
+    );
+    await ok(response);
+    return (
+        (await response.json()) as {
+            requests: Array<{ kind: string; model: string }>;
+        }
+    ).requests;
+}
+
+/** Create an AI provider through the real admin endpoint, pointing it at the local fixture. */
+export async function createFixtureAiProvider(
+    request: APIRequestContext,
+    input: AiProviderInput,
+): Promise<number> {
+    const response = await request.post(`${APP_URL}/api/ai/providers`, {
+        data: {
+            ...input,
+            api_style: "openai",
+            base_url: FIXTURE.aiBaseUrl,
+            key: "e2e-fixture-key",
+        },
+    });
+    await ok(response);
+    return ((await response.json()) as { id: number }).id;
+}
+
+export async function deleteAiProvider(
+    request: APIRequestContext,
+    providerId: number,
+): Promise<void> {
+    const response = await request.delete(
+        `${APP_URL}/api/ai/providers/${providerId}`,
+    );
+    await ok(response);
+}
+
+export async function resetAiMock(request: APIRequestContext): Promise<void> {
+    const response = await request.post("http://localhost:8098/ai-mock/reset");
+    await ok(response);
+}
+
+export async function aiSettings(request: APIRequestContext): Promise<{
+    text_provider_mode: string;
+    text_provider_ids: number[];
+    video_provider_id: number | null;
+}> {
+    const response = await request.get(`${APP_URL}/api/ai/settings`);
+    await ok(response);
+    return await response.json();
+}
+
+export async function updateAiSettings(
+    request: APIRequestContext,
+    body: Record<string, unknown>,
+): Promise<void> {
+    const response = await request.put(`${APP_URL}/api/ai/settings`, {
+        data: body,
+    });
+    await ok(response);
+}
+
+export async function enablePrivateUrls(
+    request: APIRequestContext,
+): Promise<unknown> {
+    const current = await request.get(`${APP_URL}/api/admin/ingestion`);
+    await ok(current);
+    const settings = await current.json();
+    const response = await request.put(`${APP_URL}/api/admin/ingestion`, {
+        data: { ...settings, allow_private: true },
+    });
+    await ok(response);
+    return settings;
+}
+
+export async function restoreIngestionSettings(
+    request: APIRequestContext,
+    settings: unknown,
+): Promise<void> {
+    const response = await request.put(`${APP_URL}/api/admin/ingestion`, {
+        data: settings,
+    });
+    await ok(response);
 }
 
 /**
@@ -188,6 +325,57 @@ export async function seedFeedWithItems(
             ),
     });
     return { feedId };
+}
+
+/** Seed a plain-text item because rendered HTML intentionally has no summary action. */
+export async function seedSummaryFeed(
+    request: APIRequestContext,
+): Promise<{ feedId: number; itemId: number }> {
+    const feedId = await subscribeFeed(request, FIXTURE.summary, {
+        kind: "jsonfeed",
+    });
+    await ingestNow(request);
+    const items = await waitForItems(request, {
+        predicate: (items) =>
+            items.some(
+                (item) =>
+                    (item as { title?: string }).title ===
+                    FIXTURE.summaryItemTitle,
+            ),
+    });
+    const item = items.find(
+        (candidate) =>
+            (candidate as { title?: string }).title ===
+            FIXTURE.summaryItemTitle,
+    ) as { id?: number } | undefined;
+    if (item?.id === undefined) {
+        throw new Error("expected the summary fixture item");
+    }
+    return { feedId, itemId: item.id };
+}
+
+export async function seedYoutubeFeed(
+    request: APIRequestContext,
+): Promise<{ feedId: number; itemId: number }> {
+    const feedId = await subscribeFeed(request, FIXTURE.youtube, {
+        kind: "youtube",
+    });
+    await ingestNow(request);
+    const items = await waitForItems(request, {
+        predicate: (items) =>
+            items.some(
+                (item) =>
+                    (item as { title?: string }).title === YOUTUBE_ITEM_TITLE,
+            ),
+    });
+    const item = items.find(
+        (candidate) =>
+            (candidate as { title?: string }).title === YOUTUBE_ITEM_TITLE,
+    ) as { id?: number } | undefined;
+    if (item?.id === undefined) {
+        throw new Error("expected the YouTube fixture item");
+    }
+    return { feedId, itemId: item.id };
 }
 
 /**
