@@ -26,6 +26,9 @@ web/.vite/
 web/test-results/
 web/playwright-report/
 web/ui-screenshots/
+web/e2e-logs/
+web/blob-report/
+web/all-blob-reports/
 backend/.e2e-data/
 
 # Node (root, if ever used)

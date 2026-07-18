@@ -20,7 +20,14 @@ import {
 let originalIngestionSettings: unknown;
 let createdProviderIds: number[] = [];
 
-test.describe("AI provider routing", () => {
+// Tagged @serial (issue #43): every test here creates/deletes AI providers and mutates the
+// instance-wide `ai_settings` row (text_provider_mode/text_provider_ids/video_provider_id) and,
+// via beforeAll, the global ingestion `allow_private` setting - all admin-only, single-row
+// config a concurrent summarize call elsewhere in the suite would read. The tests within this
+// file already assumed serial execution (shared `createdProviderIds` bookkeeping, afterEach
+// resets to a known state before the next test), so this also keeps that existing assumption true
+// under fullyParallel.
+test.describe("AI provider routing", { tag: "@serial" }, () => {
     test.beforeAll(async () => {
         originalIngestionSettings = await withAdmin(enablePrivateUrls);
     });
