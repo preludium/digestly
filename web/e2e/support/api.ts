@@ -290,6 +290,22 @@ export async function registerUser(
     return { username, password };
 }
 
+/** POST /api/auth/register WITHOUT marking onboarded. Every other helper calls markOnboarded to
+ *  clear the first-run overlay - this is the one exception, for onboarding.spec.ts, which tests
+ *  the overlay itself. */
+export async function registerUnonboarded(
+    request: APIRequestContext,
+    opts?: { username?: string; password?: string },
+): Promise<{ username: string; password: string }> {
+    const username = opts?.username ?? uniqueUsername();
+    const password = opts?.password ?? "e2e-password-1";
+    const response = await request.post(`${APP_URL}/api/auth/register`, {
+        data: { username, password },
+    });
+    await ok(response);
+    return { username, password };
+}
+
 /** POST /api/auth/login, then clear the onboarding overlay so the session can drive the UI. */
 export async function loginAs(
     request: APIRequestContext,
