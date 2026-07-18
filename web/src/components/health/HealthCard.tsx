@@ -15,7 +15,11 @@ export function HealthCard({
     const badge = STATUS_BADGE[row.status];
 
     return (
-        <li className="rounded-lg border border-border bg-card p-3 shadow-sm">
+        <li
+            data-testid="health-row-card"
+            data-feed-id={row.id}
+            className="rounded-lg border border-border bg-card p-3 shadow-sm"
+        >
             <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                     <FeedIcon row={row} />

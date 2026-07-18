@@ -3,8 +3,8 @@
 // open preview, toggle mark-read, filter by topic chip, search.
 import { expect, test } from "@playwright/test";
 import {
-    APP_URL,
     FIXTURE,
+    firstCategoryId,
     registerUser,
     seedFeedWithItems,
 } from "./support/api";
@@ -18,11 +18,11 @@ test.describe("items", () => {
     });
 
     test("open preview and toggle mark read / unread", async ({ page }) => {
-        // ItemCard is a <button> with the item title inside an <h3>. Filter by the h3 text
-        // to avoid matching on the concatenated accessible name (title + feed + snippet + badges).
-        const card = page.getByRole("button").filter({
-            has: page.locator("h3", { hasText: FIXTURE.rssItemTitle }),
-        });
+        // ItemCard sets data-testid="item-card"; filter by title text to avoid matching on the
+        // concatenated accessible name (title + feed + snippet + badges).
+        const card = page
+            .getByTestId("item-card")
+            .filter({ hasText: FIXTURE.rssItemTitle });
         await expect(card).toBeVisible();
         await card.click();
 
@@ -48,36 +48,32 @@ test.describe("items", () => {
     });
 
     test("filter by topic chip selects and resets", async ({ page }) => {
-        // seedFeedWithItems subscribes the fixture feed to the first category; fetch its name.
-        const catsRes = await page.request.get(`${APP_URL}/api/categories`);
-        const cats = (await catsRes.json()) as Array<{
-            id: number;
-            name: string;
-        }>;
-        const catName = cats[0].name; // "Other" per seed.rs DEFAULT_CATEGORIES[0]
+        // seedFeedWithItems subscribes the fixture feed to the first category.
+        const catId = await firstCategoryId(page.request);
 
-        const card = page.getByRole("button").filter({
-            has: page.locator("h3", { hasText: FIXTURE.rssItemTitle }),
-        });
+        const card = page
+            .getByTestId("item-card")
+            .filter({ hasText: FIXTURE.rssItemTitle });
         await expect(card).toBeVisible();
 
-        // Topic chips are <button>s whose accessible name starts with the category name
-        // followed by an item count, e.g. "Other 2". ItemCard buttons start with the item
-        // title, so /^{catName}/ selects the chip without colliding with item cards.
+        // Topic chips carry data-category-id ("all" or the category's id), so this selects the
+        // chip by id rather than parsing the category name out of its "<name> <count>" label.
         await page
-            .getByRole("button", { name: new RegExp(`^${catName}`) })
+            .locator(`[data-testid="topic-chip"][data-category-id="${catId}"]`)
             .click();
         await expect(card).toBeVisible();
 
         // "All topics" resets the category filter (FilterBar.tsx:155-164).
-        await page.getByRole("button", { name: /^All topics/ }).click();
+        await page
+            .locator('[data-testid="topic-chip"][data-category-id="all"]')
+            .click();
         await expect(card).toBeVisible();
     });
 
     test("search filters to the item and clears", async ({ page }) => {
-        const card = page.getByRole("button").filter({
-            has: page.locator("h3", { hasText: FIXTURE.rssItemTitle }),
-        });
+        const card = page
+            .getByTestId("item-card")
+            .filter({ hasText: FIXTURE.rssItemTitle });
         await expect(card).toBeVisible();
 
         // Search is debounced 300 ms (Feed.tsx:94) then appended as ?q= to /api/items.

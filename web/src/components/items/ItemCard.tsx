@@ -105,6 +105,8 @@ export function ItemCard({
         <button
             type="button"
             onClick={() => onOpen(item)}
+            data-testid="item-card"
+            data-item-id={item.id}
             className={cn(
                 "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/50 hover:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 item.is_read && "opacity-60",

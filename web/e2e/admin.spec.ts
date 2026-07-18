@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, loginAs } from "./support/api";
+import { ADMIN, expectToast, loginAs } from "./support/api";
 
 // This spec sorts first alphabetically, so it runs before the others on the shared serial
 // DB. Restoring allow_registration=true (the finally block below) is load-bearing: every
@@ -29,7 +29,7 @@ test("admin manages the Open registration setting", async ({ page }) => {
 
     try {
         await registrationSwitch.click();
-        await expect(page.getByText("Registration disabled")).toBeVisible();
+        await expectToast(page, "Registration disabled");
         await expect(registrationSwitch).toHaveAttribute(
             "aria-checked",
             "false",

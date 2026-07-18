@@ -41,6 +41,8 @@ export function TabShell<Id extends string>({
                         key={s.id}
                         type="button"
                         onClick={() => setSection(s.id)}
+                        data-testid="tab-shell-tab"
+                        data-tab-id={s.id}
                         className={navBtn(section === s.id)}
                     >
                         {s.label}

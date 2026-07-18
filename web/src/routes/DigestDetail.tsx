@@ -112,7 +112,7 @@ function Body({
 function Section({ section }: { section: DigestCategorySection }) {
     const groups = groupByFeed(section.items);
     return (
-        <Card>
+        <Card data-testid="digest-section" data-category={section.name}>
             <CardHeader className="flex-row items-center justify-between gap-2 pb-3">
                 <CardTitle className="text-base">{section.name}</CardTitle>
                 <div className="flex items-center gap-2">
