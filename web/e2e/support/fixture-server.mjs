@@ -231,8 +231,13 @@ function respondGemini(res, model) {
         return;
     }
     json(res, 200, {
-        candidates: [{ content: { parts: [{ text: response.text }] } }],
-        usageMetadata: { totalTokenCount: 12 },
+        steps: [
+            {
+                type: "model_output",
+                content: [{ type: "text", text: response.text }],
+            },
+        ],
+        usage: { total_tokens: 12 },
     });
 }
 
@@ -272,11 +277,9 @@ if (
             respondOpenAi(res, model);
             return;
         }
-        const geminiMatch = pathname.match(
-            /^\/ai-mock\/models\/([^:]+):generateContent$/,
-        );
-        if (geminiMatch && req.method === "POST") {
-            const model = decodeURIComponent(geminiMatch[1]);
+        if (pathname === "/ai-mock/interactions" && req.method === "POST") {
+            const body = await readJson(req);
+            const model = body.model ?? "unknown";
             aiRequests.push({ kind: "gemini", model });
             respondGemini(res, model);
             return;

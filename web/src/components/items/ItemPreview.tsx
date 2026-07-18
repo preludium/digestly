@@ -68,12 +68,12 @@ export function ItemPreview({
                 {itemId != null && (
                     <>
                         {/* Action bar */}
-                        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-card px-4 py-3">
+                        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-3">
                             <Button variant="ghost" size="sm" onClick={onClose}>
                                 <ArrowLeft className="size-4" /> Back
                             </Button>
                             {view && (
-                                <div className="ml-auto flex items-center gap-1">
+                                <div className="ml-auto flex flex-wrap items-center gap-1 max-sm:ml-0">
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -224,20 +224,7 @@ function PreviewBody({
                 </div>
             </div>
 
-            {view.url && (
-                <div className="flex flex-wrap gap-2">
-                    <Button variant="default" size="sm" asChild>
-                        <a
-                            href={externalHref(view.url, view.kind)}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={onOpen}
-                        >
-                            <ExternalLink className="size-4" /> Open original
-                        </a>
-                    </Button>
-                </div>
-            )}
+            {!isVideo && <OpenOriginalAction view={view} onOpen={onOpen} />}
 
             {loading ? (
                 <div className="space-y-2 pt-2">
@@ -246,11 +233,39 @@ function PreviewBody({
                     <Skeleton className="h-4 w-2/3" />
                 </div>
             ) : isVideo ? (
-                <VideoBody view={view} />
+                <>
+                    <VideoBody view={view} />
+                    <OpenOriginalAction view={view} onOpen={onOpen} />
+                </>
             ) : (
                 <ReadingBody view={view} />
             )}
         </article>
+    );
+}
+
+function OpenOriginalAction({
+    view,
+    onOpen,
+}: {
+    view: Item & Partial<ItemDetail>;
+    onOpen: () => void;
+}) {
+    if (!view.url) return null;
+
+    return (
+        <div className="flex flex-wrap gap-2">
+            <Button variant="default" size="sm" asChild>
+                <a
+                    href={externalHref(view.url, view.kind)}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={onOpen}
+                >
+                    <ExternalLink className="size-4" /> Open original
+                </a>
+            </Button>
+        </div>
     );
 }
 
@@ -270,25 +285,30 @@ function ReadingBody({ view }: { view: Item & Partial<ItemDetail> }) {
 function VideoBody({ view }: { view: Item & Partial<ItemDetail> }) {
     const [showTranscript, setShowTranscript] = useState(false);
     const unavailable = view.transcript_status === "unavailable";
+    const transcriptId = `item-${view.id}-transcript`;
 
     return (
         <div className="space-y-4">
-            {/* 1. AI summary (primary) - filled in Phase 5 */}
             <SummarySlot view={view} />
 
-            {/* 2. Collapsible transcript */}
             <div className="rounded-md border border-border">
                 <Button
                     type="button"
                     variant="plain"
                     size="inline"
                     className="w-full justify-between px-3 py-2 font-medium"
+                    aria-expanded={showTranscript}
+                    aria-controls={transcriptId}
                     onClick={() => setShowTranscript((s) => !s)}
                 >
-                    📄{" "}
-                    {unavailable
-                        ? "No captions available"
-                        : "Show full transcript"}
+                    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-left">
+                        <span>Transcript</span>
+                        {unavailable && (
+                            <span className="text-muted-foreground">
+                                No captions available
+                            </span>
+                        )}
+                    </span>
                     <ChevronDown
                         className={cn(
                             "size-4 transition-transform",
@@ -297,7 +317,10 @@ function VideoBody({ view }: { view: Item & Partial<ItemDetail> }) {
                     />
                 </Button>
                 {showTranscript && (
-                    <div className="border-t border-border px-3 py-2 text-sm text-muted-foreground">
+                    <div
+                        id={transcriptId}
+                        className="border-t border-border px-3 py-2 text-sm text-muted-foreground"
+                    >
                         {view.transcript_text ? (
                             <p className="whitespace-pre-wrap leading-relaxed">
                                 {view.transcript_text}
@@ -332,12 +355,29 @@ function SummarySlot({ view }: { view: Item & Partial<ItemDetail> }) {
         );
 
     if (view.summary) {
+        const isVideo = view.content_type === "video";
+        const sourceLabel =
+            view.summary_kind === "video-topics-v1"
+                ? "Video analysis"
+                : view.summary_kind === "text-video-topics-v1"
+                  ? view.transcript_status === "fetched"
+                      ? "From captions"
+                      : "Based only on the video description"
+                  : null;
+
         return (
             <div className="rounded-md border border-border bg-muted/40 p-3">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        AI summary
-                    </p>
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {isVideo ? "Video topics" : "AI summary"}
+                        </p>
+                        {sourceLabel && (
+                            <p className="text-xs text-muted-foreground">
+                                {sourceLabel}
+                            </p>
+                        )}
+                    </div>
                     <Button
                         variant="ghost"
                         size="sm"
@@ -362,7 +402,7 @@ function SummarySlot({ view }: { view: Item & Partial<ItemDetail> }) {
         <div className="flex flex-col items-start gap-2 rounded-md border border-dashed border-border p-3">
             <p className="text-sm text-muted-foreground">
                 {view.content_type === "video"
-                    ? "Read this video as text - generate an AI summary of the video."
+                    ? "Generate a concise topic summary of this video."
                     : "Generate an AI summary of this article."}
             </p>
             <Button

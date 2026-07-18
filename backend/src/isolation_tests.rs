@@ -1248,6 +1248,7 @@ async fn summarize_reuses_shared_cache_across_users() {
     .await;
     assert_eq!(detail.status, StatusCode::OK);
     assert_eq!(detail.body["summary"], "CACHED SUMMARY");
+    assert_eq!(detail.body["summary_kind"], "text");
 
     // Alice summarizes → cache hit, no network.
     let a = call(
@@ -1261,6 +1262,7 @@ async fn summarize_reuses_shared_cache_across_users() {
     assert_eq!(a.status, StatusCode::OK);
     assert_eq!(a.body["cached"], true);
     assert_eq!(a.body["summary"], "CACHED SUMMARY");
+    assert_eq!(a.body["summary_kind"], "text");
 
     // Bob (a different user) reuses the SAME shared cache entry.
     let b = call(
@@ -1288,6 +1290,108 @@ async fn summarize_reuses_shared_cache_across_users() {
     .unwrap()
     .get("n");
     assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn youtube_detail_and_list_only_resolve_current_topic_caches() {
+    let (app, pool, _d) = test_app().await;
+    let alice = register(&app, "alice", "password123").await.cookie.unwrap();
+    let categories = call(&app, "GET", "/api/categories", None, Some(&alice)).await;
+    let subscription = subscribe(
+        &app,
+        &alice,
+        "https://shared.example/videos.xml",
+        cat_id(&categories.body, "Other"),
+    )
+    .await;
+    let feed_id = subscription.body["feed_id"].as_i64().unwrap();
+    sqlx::query("UPDATE feeds SET kind = 'youtube' WHERE id = ?")
+        .bind(feed_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let item = insert_item(
+        &pool,
+        feed_id,
+        "topics-v1",
+        "Video",
+        "description",
+        "2021-06-10 10:00:00",
+        None,
+        None,
+        None,
+    )
+    .await;
+    let provider_id = seed_active_provider(&pool, "test-model").await;
+
+    for kind in ["video", "text"] {
+        sqlx::query(
+            "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+             VALUES (?, ?, ?, 'test-model', 'openai', 'legacy')",
+        )
+        .bind(item)
+        .bind(provider_id)
+        .bind(kind)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let detail = call(
+        &app,
+        "GET",
+        &format!("/api/items/{item}"),
+        None,
+        Some(&alice),
+    )
+    .await;
+    assert_eq!(detail.body["summary"], serde_json::Value::Null);
+    assert_eq!(detail.body["summary_kind"], serde_json::Value::Null);
+    assert_eq!(detail.body["has_summary"], false);
+    let list = call(&app, "GET", "/api/items", None, Some(&alice)).await;
+    assert_eq!(list.body["items"][0]["has_summary"], false);
+
+    sqlx::query(
+        "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+         VALUES (?, ?, 'text-video-topics-v1', 'test-model', 'openai', 'current topics')",
+    )
+    .bind(item)
+    .bind(provider_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let detail = call(
+        &app,
+        "GET",
+        &format!("/api/items/{item}"),
+        None,
+        Some(&alice),
+    )
+    .await;
+    assert_eq!(detail.body["summary"], "current topics");
+    assert_eq!(detail.body["summary_kind"], "text-video-topics-v1");
+    assert_eq!(detail.body["has_summary"], true);
+    let list = call(&app, "GET", "/api/items", None, Some(&alice)).await;
+    assert_eq!(list.body["items"][0]["has_summary"], true);
+
+    sqlx::query("UPDATE ai_providers SET model = 'different-model' WHERE id = ?")
+        .bind(provider_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let detail = call(
+        &app,
+        "GET",
+        &format!("/api/items/{item}"),
+        None,
+        Some(&alice),
+    )
+    .await;
+    assert_eq!(detail.body["summary"], serde_json::Value::Null);
+    assert_eq!(detail.body["has_summary"], false);
+    let list = call(&app, "GET", "/api/items", None, Some(&alice)).await;
+    assert_eq!(list.body["items"][0]["has_summary"], false);
 }
 
 #[tokio::test]

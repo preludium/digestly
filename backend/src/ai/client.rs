@@ -125,15 +125,13 @@ impl super::LlmClient for AnthropicClient {
     }
 }
 
-/// Summarize a YouTube video by URL via Gemini's native `generateContent` endpoint. This remains
+/// Summarize a YouTube video by URL via Gemini's native Interactions API. This remains
 /// video-only; text summaries use the configured provider route and its standard API styles.
 pub async fn gemini_video_complete(
     http: Client,
     provider: &crate::ai::provider::ResolvedProvider,
     video_url: &str,
     prompt: &str,
-    max_tokens: u32,
-    temperature: f32,
     timeout_secs: u64,
 ) -> Result<LlmResponse, LlmError> {
     let c = ClientCfg {
@@ -143,18 +141,13 @@ pub async fn gemini_video_complete(
         api_key: provider.key.clone(),
         timeout_secs,
     };
-    let url = gemini_video_endpoint(&c.base_url, &c.model);
-    // Video first, instructions second - Gemini's documented best practice for media prompts.
+    let url = gemini_video_endpoint(&c.base_url);
     let body = json!({
-        "contents": [{ "parts": [
-            { "file_data": { "file_uri": video_url } },
-            { "text": prompt },
-        ]}],
-        "generationConfig": {
-            "maxOutputTokens": max_tokens,
-            "temperature": temperature,
-            "mediaResolution": "MEDIA_RESOLUTION_LOW",
-        },
+        "model": c.model,
+        "input": [
+            { "type": "text", "text": prompt },
+            { "type": "video", "uri": video_url },
+        ],
     });
     let resp = send_with_retry(&c, &url, &body, |rb| match &c.api_key {
         Some(k) => rb.header("x-goog-api-key", k),
@@ -164,26 +157,33 @@ pub async fn gemini_video_complete(
     parse_gemini_video_response(&resp, prompt)
 }
 
-/// The native `generateContent` URL for a stored Gemini provider. Providers created from the
+/// The native Interactions URL for a stored Gemini provider. Providers created from the
 /// preset store the OpenAI-compatible base (`…/v1beta/openai`); the native API lives one level up.
-fn gemini_video_endpoint(base_url: &str, model: &str) -> String {
+fn gemini_video_endpoint(base_url: &str) -> String {
     let root = base_url
         .trim_end_matches('/')
         .trim_end_matches("/openai")
         .trim_end_matches('/');
-    format!("{root}/models/{model}:generateContent")
+    format!("{root}/interactions")
 }
 
-/// Extract text + token usage from a native `generateContent` response body.
+/// Extract text + token usage from a native Interactions response body.
 fn parse_gemini_video_response(resp: &Value, prompt: &str) -> Result<LlmResponse, LlmError> {
     let text = resp
-        .pointer("/candidates/0/content/parts/0/text")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .filter(|s| !s.trim().is_empty())
+        .get("steps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|step| step.get("type").and_then(Value::as_str) == Some("model_output"))
+        .filter_map(|step| step.get("content").and_then(Value::as_array))
+        .flatten()
+        .filter(|content| content.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|content| content.get("text").and_then(Value::as_str))
+        .find(|text| !text.trim().is_empty())
+        .map(str::to_owned)
         .ok_or(LlmError::Empty)?;
     let tokens_used = resp
-        .pointer("/usageMetadata/totalTokenCount")
+        .pointer("/usage/total_tokens")
         .and_then(Value::as_i64)
         .unwrap_or_else(|| estimate_tokens(prompt, "", &text));
     Ok(LlmResponse { text, tokens_used })
@@ -281,36 +281,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn derives_native_gemini_endpoint_from_the_openai_compat_base_url() {
+    fn derives_native_gemini_interactions_endpoint_from_the_openai_compat_base_url() {
         assert_eq!(
-            gemini_video_endpoint(
-                "https://generativelanguage.googleapis.com/v1beta/openai",
-                "gemini-2.0-flash"
-            ),
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+            gemini_video_endpoint("https://generativelanguage.googleapis.com/v1beta/openai"),
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
         // Trailing slash and no-compat-suffix variants both resolve to the same shape.
         assert_eq!(
-            gemini_video_endpoint(
-                "https://generativelanguage.googleapis.com/v1beta/openai/",
-                "gemini-2.0-flash"
-            ),
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+            gemini_video_endpoint("https://generativelanguage.googleapis.com/v1beta/openai/"),
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
         assert_eq!(
-            gemini_video_endpoint(
-                "https://generativelanguage.googleapis.com/v1beta",
-                "gemini-2.0-flash"
-            ),
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+            gemini_video_endpoint("https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
     }
 
     #[test]
     fn parses_a_gemini_video_response() {
         let body = serde_json::json!({
-            "candidates": [{ "content": { "parts": [{ "text": "A summary." }] } }],
-            "usageMetadata": { "totalTokenCount": 151234 }
+            "steps": [{
+                "type": "model_output",
+                "content": [{ "type": "text", "text": "A summary." }]
+            }],
+            "usage": { "total_tokens": 151234 }
         });
         let resp = parse_gemini_video_response(&body, "prompt").unwrap();
         assert_eq!(resp.text, "A summary.");
@@ -319,13 +313,21 @@ mod tests {
 
     #[test]
     fn empty_or_missing_candidate_text_is_an_empty_error() {
-        let missing = serde_json::json!({ "candidates": [] });
+        let missing = serde_json::json!({});
         assert!(matches!(
             parse_gemini_video_response(&missing, "p"),
             Err(LlmError::Empty)
         ));
+        let empty = serde_json::json!({ "steps": [] });
+        assert!(matches!(
+            parse_gemini_video_response(&empty, "p"),
+            Err(LlmError::Empty)
+        ));
         let blank = serde_json::json!({
-            "candidates": [{ "content": { "parts": [{ "text": "   " }] } }]
+            "steps": [{
+                "type": "model_output",
+                "content": [{ "type": "text", "text": "   " }]
+            }]
         });
         assert!(matches!(
             parse_gemini_video_response(&blank, "p"),
@@ -336,9 +338,24 @@ mod tests {
     #[test]
     fn missing_usage_falls_back_to_an_estimate() {
         let body = serde_json::json!({
-            "candidates": [{ "content": { "parts": [{ "text": "Summary text here." }] } }]
+            "steps": [{
+                "type": "model_output",
+                "content": [{ "type": "text", "text": "Summary text here." }]
+            }]
         });
         let resp = parse_gemini_video_response(&body, "prompt").unwrap();
         assert!(resp.tokens_used >= 1);
+    }
+
+    #[test]
+    fn skips_non_text_and_non_model_output_steps() {
+        let body = serde_json::json!({
+            "steps": [
+                { "type": "tool_call", "content": [{ "type": "text", "text": "ignored" }] },
+                { "type": "model_output", "content": [{ "type": "image" }, { "type": "text", "text": "A summary." }] }
+            ]
+        });
+        let resp = parse_gemini_video_response(&body, "prompt").unwrap();
+        assert_eq!(resp.text, "A summary.");
     }
 }

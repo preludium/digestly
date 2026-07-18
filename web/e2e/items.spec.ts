@@ -7,13 +7,18 @@ import {
     FIXTURE,
     registerUser,
     seedFeedWithItems,
+    seedYoutubeFeed,
 } from "./support/api";
 
 test.describe("items", () => {
     // Each test registers a unique user so ingest cooldowns and read-state don't bleed.
-    test.beforeEach(async ({ page }) => {
+    test.beforeEach(async ({ page }, testInfo) => {
         await registerUser(page.request);
-        await seedFeedWithItems(page.request);
+        if (testInfo.titlePath.includes("video topics")) {
+            await seedYoutubeFeed(page.request);
+        } else {
+            await seedFeedWithItems(page.request);
+        }
         await page.goto("/");
     });
 
@@ -88,5 +93,121 @@ test.describe("items", () => {
         // Clear the search; all items return.
         await page.getByLabel("Search articles").clear();
         await expect(card).toBeVisible();
+    });
+
+    test.describe("video topics", () => {
+        test.use({ serviceWorkers: "block" });
+
+        test("label the source and keep captions collapsed", async ({
+            page,
+        }) => {
+            const items = await page.request.get(
+                `${APP_URL}/api/items?type=video`,
+            );
+            const { id: itemId } = (
+                (await items.json()) as {
+                    items: Array<{ id: number }>;
+                }
+            ).items[0];
+            const detail = await page.request.get(
+                `${APP_URL}/api/items/${itemId}`,
+            );
+            const video = (await detail.json()) as Record<string, unknown>;
+            const videoTitle = String(video.title);
+            const topicSummary =
+                "- **Performance:** The video explains how to measure bottlenecks.";
+
+            await page.route(`**/api/items/${itemId}`, async (route) => {
+                await route.fulfill({
+                    json: {
+                        ...video,
+                        summary: topicSummary,
+                        summary_kind: "text-video-topics-v1",
+                        transcript_status: "fetched",
+                        transcript_text: "Caption reference text.",
+                    },
+                });
+            });
+
+            await page
+                .getByRole("button")
+                .filter({ has: page.locator("h3", { hasText: videoTitle }) })
+                .click();
+            await expect(page.getByText("Video topics")).toBeVisible();
+            await expect(page.getByText("From captions")).toBeVisible();
+            await expect(page.getByText("Performance:")).toBeVisible();
+            expect(
+                await page.locator("article").evaluate((article) => {
+                    const topics = [...article.querySelectorAll("p")].find(
+                        (element) => element.textContent === "Video topics",
+                    );
+                    const openOriginal = article.querySelector(
+                        'a[rel="noreferrer"]',
+                    );
+                    return Boolean(
+                        topics &&
+                            openOriginal &&
+                            topics.compareDocumentPosition(openOriginal) &
+                                Node.DOCUMENT_POSITION_FOLLOWING,
+                    );
+                }),
+            ).toBe(true);
+
+            const transcript = page.getByRole("button", { name: "Transcript" });
+            await expect(transcript).toHaveAttribute("aria-expanded", "false");
+            await expect(
+                page.getByText("Caption reference text."),
+            ).toBeHidden();
+            await transcript.click();
+            await expect(transcript).toHaveAttribute("aria-expanded", "true");
+            await expect(
+                page.getByText("Caption reference text."),
+            ).toBeVisible();
+
+            await page.setViewportSize({ width: 375, height: 812 });
+            await expect(transcript).toBeVisible();
+            expect(
+                await page
+                    .locator("html")
+                    .evaluate((html) => html.scrollWidth <= html.clientWidth),
+            ).toBe(true);
+        });
+
+        test("labels description-only summaries", async ({ page }) => {
+            const items = await page.request.get(
+                `${APP_URL}/api/items?type=video`,
+            );
+            const { id: itemId } = (
+                (await items.json()) as {
+                    items: Array<{ id: number }>;
+                }
+            ).items[0];
+            const detail = await page.request.get(
+                `${APP_URL}/api/items/${itemId}`,
+            );
+            const video = (await detail.json()) as Record<string, unknown>;
+            const videoTitle = String(video.title);
+
+            await page.route(`**/api/items/${itemId}`, async (route) => {
+                await route.fulfill({
+                    json: {
+                        ...video,
+                        summary:
+                            "- **Setup:** The description introduces the subject.",
+                        summary_kind: "text-video-topics-v1",
+                        transcript_status: "unavailable",
+                        transcript_text: null,
+                    },
+                });
+            });
+
+            await page
+                .getByRole("button")
+                .filter({ has: page.locator("h3", { hasText: videoTitle }) })
+                .click();
+            await expect(
+                page.getByText("Based only on the video description"),
+            ).toBeVisible();
+        });
     });
 });
