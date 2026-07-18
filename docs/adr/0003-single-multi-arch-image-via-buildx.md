@@ -56,10 +56,9 @@ docker compose build      # or: docker compose up --build
 | Trigger          | Tags produced                                 |
 | ---------------- | --------------------------------------------- |
 | Git tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `X`, `latest`, `sha-<short>` |
-| Push to `main`   | `edge`, `sha-<short>`                         |
 
 `latest` tracks the newest **release**, not the newest commit. Pin `X.Y.Z` (or `X.Y` for
-patches) for a stable deploy; pull `edge` for unreleased `main`.
+patches) for a stable deploy.
 
 Cutting a release is a git tag on `main`:
 

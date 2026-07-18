@@ -94,6 +94,6 @@ fail on the same tree - useful for local cleanup, not the gate.
 
 ## CI
 
-CI runs on every PR and push to `main`. All three jobs (`backend`, `frontend`, `e2e`) must be
+CI runs on every PR. All three jobs (`backend`, `frontend`, `e2e`) must be
 green before merging. A red job blocks the PR regardless of whether the failure pre-dates the
 change. See `docs/adr/0001-ci-is-the-only-merge-gate.md`.
