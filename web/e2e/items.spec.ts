@@ -132,22 +132,20 @@ test.describe("items", () => {
             await expect(page.getByText("Video topics")).toBeVisible();
             await expect(page.getByText("From captions")).toBeVisible();
             await expect(page.getByText("Performance:")).toBeVisible();
+            const original = page.getByRole("link", {
+                name: "Open original video",
+            });
+            await expect(original).toBeVisible();
             expect(
-                await page.locator("article").evaluate((article) => {
-                    const topics = [...article.querySelectorAll("p")].find(
-                        (element) => element.textContent === "Video topics",
-                    );
-                    const openOriginal = article.querySelector(
-                        'a[rel="noreferrer"]',
-                    );
-                    return Boolean(
-                        topics &&
-                            openOriginal &&
-                            topics.compareDocumentPosition(openOriginal) &
-                                Node.DOCUMENT_POSITION_FOLLOWING,
-                    );
-                }),
+                await original.evaluate(
+                    (link, title) =>
+                        link.parentElement?.querySelector("h1")?.textContent ===
+                        title,
+                    videoTitle,
+                ),
             ).toBe(true);
+            await original.hover();
+            await expect(page.getByText("Open original video")).toBeVisible();
 
             const transcript = page.getByRole("button", { name: "Transcript" });
             await expect(transcript).toHaveAttribute("aria-expanded", "false");
