@@ -390,6 +390,43 @@ export async function seedFeeds(
     return ids;
 }
 
+/**
+ * Ingest each feed ONE AT A TIME, with a >1s gap between them, so their items land with distinct
+ * `published_at` seconds - the fixture server injects "now" into a feed's body at request time
+ * (see fixture-server.mjs), and `items.published_at` is stored at second precision, so two feeds
+ * ingested in the same tick could tie, making a Newest/Oldest sort assertion flaky.
+ *
+ * Each feed is ingested through its OWN throwaway identity rather than `request`'s own session:
+ * `events.rs::COOLDOWN` allows a user only one `refresh-all` per 60s, so ingesting N feeds one at
+ * a time on the SAME session would 429 from the second feed on. A feed/its items are global
+ * (shared across users, keyed by URL - see CONTEXT.md), so once a throwaway has ingested one, the
+ * caller's own session just subscribes to the already-populated feed for free, no re-ingest
+ * needed. Returns the caller's own subscription ids, in the same order as `specs`.
+ */
+export async function seedFeedsSequentially(
+    request: APIRequestContext,
+    specs: SeedFeedSpec[],
+): Promise<number[]> {
+    for (const spec of specs) {
+        const seeder = await requestContext();
+        try {
+            await registerUser(seeder);
+            await subscribeFeed(seeder, spec.feedUrl, { kind: spec.kind });
+            await ingestNow(seeder);
+        } finally {
+            await seeder.dispose();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_100));
+    }
+    return seedFeeds(request, specs);
+}
+
+/** A fresh, independent request context sharing no cookies with `request` - see the cookie
+ *  contract at the top of this file (mirrors `asAdmin`'s pattern for a non-admin identity). */
+async function requestContext(): Promise<APIRequestContext> {
+    return request.newContext({ baseURL: APP_URL });
+}
+
 /** POST /api/feeds/refresh-all, then poll GET /api/ingest/status until the run clears. */
 export async function ingestNow(
     request: APIRequestContext,
@@ -444,6 +481,36 @@ export async function waitForItems(
         }
         await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
+}
+
+/** GET /api/items and find the id of the item with this exact title. Passes an explicit
+ *  `page_size` (routes/items.rs: an explicit query param wins over the user's stored setting) so
+ *  a spec that forced a small page for pagination assertions doesn't also starve this lookup. */
+export async function itemIdByTitle(
+    request: APIRequestContext,
+    title: string,
+): Promise<number> {
+    const response = await request.get(`${APP_URL}/api/items?page_size=100`);
+    await ok(response);
+    const body: { items: Array<{ id: number; title: string | null }> } =
+        await response.json();
+    const item = body.items.find((i) => i.title === title);
+    if (!item) {
+        throw new Error(`expected an item titled "${title}"`);
+    }
+    return item.id;
+}
+
+/** PUT /api/settings { page_size } - lets a spec force a small page so pagination (page count,
+ *  ellipsis windowing) is deterministic without seeding dozens of items. */
+export async function setPageSize(
+    request: APIRequestContext,
+    pageSize: number,
+): Promise<void> {
+    const response = await request.put(`${APP_URL}/api/settings`, {
+        data: { page_size: pageSize },
+    });
+    await ok(response);
 }
 
 /** Subscribe the fixture RSS feed, ingest, and wait for its known item to appear. */
