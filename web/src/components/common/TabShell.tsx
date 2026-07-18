@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { PageTitle } from "@/components/common/PageHeadings";
 import { cn } from "@/lib/utils";
 
@@ -28,9 +28,19 @@ export function TabShell<Id extends string>({
     initial: Id;
     children: (section: Id) => React.ReactNode;
 }) {
-    const [section, setSection] = useState<Id>(initial);
-    // biome-ignore lint/style/noNonNullAssertion: section is always one of sections' ids
-    const active = sections.find((s) => s.id === section)!;
+    const [params, setParams] = useSearchParams();
+    const active =
+        sections.find((s) => s.id === params.get("tab")) ??
+        sections.find((s) => s.id === initial);
+
+    if (!active) return null;
+    const section = active.id;
+
+    const selectSection = (id: Id) => {
+        const next = new URLSearchParams(params);
+        next.set("tab", id);
+        setParams(next);
+    };
 
     return (
         <div className="space-y-6">
@@ -40,7 +50,7 @@ export function TabShell<Id extends string>({
                     <button
                         key={s.id}
                         type="button"
-                        onClick={() => setSection(s.id)}
+                        onClick={() => selectSection(s.id)}
                         data-testid="tab-shell-tab"
                         data-tab-id={s.id}
                         className={navBtn(section === s.id)}

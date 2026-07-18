@@ -232,6 +232,7 @@ struct AiSettingsDto {
     text_provider_mode: String,
     /// Effective text provider IDs, filtered for the dedicated video provider.
     text_provider_ids: Vec<i64>,
+    youtube_auto_summary_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -253,6 +254,8 @@ struct AiSettingsInput {
     /// Absent preserves this setting; `null` clears it.
     #[serde(default)]
     video_provider_id: SettingField<i64>,
+    #[serde(default)]
+    youtube_auto_summary_enabled: Option<bool>,
 }
 
 #[derive(Default)]
@@ -306,6 +309,12 @@ async fn get_ai_settings(
         video_provider_id,
         text_provider_mode,
         text_provider_ids,
+        youtube_auto_summary_enabled: crate::settings::get_bool(
+            &state.pool,
+            "ai.youtube_auto_summary_enabled",
+            false,
+        )
+        .await,
     }))
 }
 
@@ -395,6 +404,14 @@ async fn put_ai_settings(
     }
     if let Some(ids) = text_provider_ids_json {
         set_setting_tx(&mut tx, provider::TEXT_ROUTE_PROVIDER_IDS_KEY, &ids).await?;
+    }
+    if let Some(enabled) = body.youtube_auto_summary_enabled {
+        set_setting_tx(
+            &mut tx,
+            "ai.youtube_auto_summary_enabled",
+            if enabled { "true" } else { "false" },
+        )
+        .await?;
     }
     if video_provider_is_present {
         match video_provider_id {

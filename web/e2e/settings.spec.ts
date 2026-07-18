@@ -33,3 +33,36 @@ test("General settings: timezone autosaves and persists after reload", async ({
         "America/New_York",
     );
 });
+
+test("syncs Settings tabs with the URL without losing OAuth cleanup", async ({
+    page,
+}) => {
+    await registerUser(page.request);
+
+    await page.goto("/settings?tab=notifications&view=compact");
+    await expect(
+        page.getByRole("heading", { name: "Notifications", exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Import / Export" }).click();
+    await expect(page).toHaveURL("/settings?tab=import&view=compact");
+    await page.goBack();
+    await expect(
+        page.getByRole("heading", { name: "Notifications", exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/settings?tab=unknown");
+    await expect(
+        page.getByRole("heading", { name: "General", exact: true }),
+    ).toBeVisible();
+    await page.goto("/settings?view=compact");
+    await expect(
+        page.getByRole("heading", { name: "General", exact: true }),
+    ).toBeVisible();
+
+    await page.goto("/settings?tab=import&connected=youtube&view=compact");
+    await expect(page).toHaveURL("/settings?tab=import&view=compact");
+    await expect(
+        page.getByRole("heading", { name: "Import / Export", exact: true }),
+    ).toBeVisible();
+});

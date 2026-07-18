@@ -15,11 +15,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
+use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 
-use super::transcript;
+use super::{summarize, transcript};
 
 /// Wake handle: notify to check for newly-ingested video items right away, instead of waiting for
 /// the idle tick.
@@ -45,6 +46,11 @@ pub fn spawn(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         info!("transcript worker started");
+        // `Config` validates this required secret before background tasks are spawned. The worker
+        // derives the same AEAD key as `main` so it can use the existing summary path.
+        let enc_key = std::env::var("SECRET_KEY")
+            .ok()
+            .map(|secret| Sha256::digest(secret.as_bytes()).into());
         let mut backoff = RateLimitBackoff::default();
         loop {
             tokio::select! {
@@ -58,7 +64,7 @@ pub fn spawn(
                 );
                 continue;
             }
-            match tick(&pool, &client).await {
+            match tick(&pool, &client, enc_key.as_ref()).await {
                 Ok(hit_rate_limit) if hit_rate_limit => backoff.record_hit(Instant::now()),
                 Ok(_) => backoff.reset(),
                 Err(e) => warn!(error = %e, "transcript worker tick failed"),
@@ -103,10 +109,16 @@ struct DueItem {
     id: i64,
     url: Option<String>,
     guid: Option<String>,
+    transcript_pending: bool,
+    auto_summary_pending: bool,
 }
 
 /// Runs one batch. Returns whether a rate-limit hit occurred, so the caller can back off.
-async fn tick(pool: &SqlitePool, client: &Client) -> anyhow::Result<bool> {
+async fn tick(
+    pool: &SqlitePool,
+    client: &Client,
+    enc_key: Option<&[u8; 32]>,
+) -> anyhow::Result<bool> {
     let due = select_due(pool).await?;
     if due.is_empty() {
         return Ok(false);
@@ -124,27 +136,36 @@ async fn tick(pool: &SqlitePool, client: &Client) -> anyhow::Result<bool> {
             progress = format!("{}/{total}", i + 1),
             "fetching transcript"
         );
-        let outcome = transcript::fetch_store_or_remove_if_live(
-            pool,
-            client,
-            item.id,
-            item.url.as_deref(),
-            item.guid.as_deref(),
-            FETCH_TIMEOUT_SECS,
-        )
-        .await;
-        match outcome {
-            transcript::TranscriptOutcome::Fetched => fetched += 1,
-            transcript::TranscriptOutcome::Unavailable => unavailable += 1,
-            transcript::TranscriptOutcome::RemovedLive => removed_live += 1,
-            transcript::TranscriptOutcome::RateLimited => {
-                rate_limited += 1;
-                // A 429 is IP-wide, not per-video - the rest of this batch would almost certainly
-                // hit the same wall. Stop now; everything left stays `transcript_status = 'none'`
-                // and gets picked up again next tick once the limit clears.
-                warn!("rate-limited by youtube.com - stopping this batch early");
-                break;
+        if item.transcript_pending && transcript_is_due(pool, item.id).await? {
+            let outcome = transcript::fetch_store_or_remove_if_live(
+                pool,
+                client,
+                item.id,
+                item.url.as_deref(),
+                item.guid.as_deref(),
+                FETCH_TIMEOUT_SECS,
+            )
+            .await;
+            match outcome {
+                transcript::TranscriptOutcome::Fetched => fetched += 1,
+                transcript::TranscriptOutcome::Unavailable => unavailable += 1,
+                // Do not summarize videos that the normal worker excludes from the library.
+                transcript::TranscriptOutcome::RemovedLive => {
+                    removed_live += 1;
+                    continue;
+                }
+                transcript::TranscriptOutcome::RateLimited => {
+                    rate_limited += 1;
+                    // A 429 is IP-wide, not per-video - the rest of this batch would almost certainly
+                    // hit the same wall. Stop now; everything left stays `transcript_status = 'none'`
+                    // and gets picked up again next tick once the limit clears.
+                    warn!("rate-limited by youtube.com - stopping this batch early");
+                    break;
+                }
             }
+        }
+        if item.auto_summary_pending {
+            attempt_auto_summary(pool, client, enc_key, item.id).await;
         }
     }
     info!(
@@ -154,13 +175,16 @@ async fn tick(pool: &SqlitePool, client: &Client) -> anyhow::Result<bool> {
     Ok(rate_limited > 0)
 }
 
-/// Select the oldest `BATCH` YouTube items still awaiting a transcript attempt.
+/// Select the oldest `BATCH` YouTube items needing either a transcript or one automatic summary.
 async fn select_due(pool: &SqlitePool) -> anyhow::Result<Vec<DueItem>> {
     let rows = sqlx::query(
-        "SELECT i.id AS id, i.url AS url, i.guid AS guid
-         FROM items i
-         JOIN feeds f ON f.id = i.feed_id
-         WHERE f.kind = 'youtube' AND i.transcript_status = 'none'
+        "SELECT i.id AS id, i.url AS url, i.guid AS guid,
+                i.transcript_status = 'none' AS transcript_pending,
+                i.auto_summary_pending AS auto_summary_pending
+          FROM items i
+          JOIN feeds f ON f.id = i.feed_id
+          WHERE f.kind = 'youtube'
+            AND (i.transcript_status = 'none' OR i.auto_summary_pending = 1)
          ORDER BY i.id
          LIMIT ?",
     )
@@ -173,8 +197,54 @@ async fn select_due(pool: &SqlitePool) -> anyhow::Result<Vec<DueItem>> {
             id: r.get("id"),
             url: r.get("url"),
             guid: r.get("guid"),
+            transcript_pending: r.get::<i64, _>("transcript_pending") != 0,
+            auto_summary_pending: r.get::<i64, _>("auto_summary_pending") != 0,
         })
         .collect())
+}
+
+async fn attempt_auto_summary(
+    pool: &SqlitePool,
+    client: &Client,
+    enc_key: Option<&[u8; 32]>,
+    item_id: i64,
+) {
+    match enc_key {
+        Some(enc_key) => {
+            match summarize::summarize_item(pool, client, enc_key, item_id, false).await {
+                Ok(_) => debug!(item_id, "automatic YouTube summary complete"),
+                Err(summarize::SummarizeError::NotConfigured) => {
+                    debug!(
+                        item_id,
+                        "automatic YouTube summary skipped: no provider configured"
+                    )
+                }
+                Err(error) => warn!(item_id, error = ?error, "automatic YouTube summary failed"),
+            }
+        }
+        None => warn!(
+            item_id,
+            "automatic YouTube summary skipped: SECRET_KEY unavailable"
+        ),
+    }
+
+    if let Err(error) = sqlx::query("UPDATE items SET auto_summary_pending = 0 WHERE id = ?")
+        .bind(item_id)
+        .execute(pool)
+        .await
+    {
+        warn!(item_id, error = %error, "failed to clear automatic YouTube summary marker");
+    }
+}
+
+async fn transcript_is_due(pool: &SqlitePool, item_id: i64) -> anyhow::Result<bool> {
+    Ok(
+        sqlx::query("SELECT transcript_status = 'none' AS pending FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_optional(pool)
+            .await?
+            .is_some_and(|row| row.get::<i64, _>("pending") != 0),
+    )
 }
 
 #[cfg(test)]
@@ -225,6 +295,46 @@ mod tests {
         let selected = select_due(&pool).await.unwrap();
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].id, due);
+    }
+
+    #[tokio::test]
+    async fn selects_pending_auto_summaries_after_the_transcript_is_handled() {
+        let pool = test_pool().await;
+        let yt_feed = make_feed(&pool, "youtube").await;
+        let item_id = make_item(&pool, yt_feed, "summary", "fetched").await;
+        sqlx::query("UPDATE items SET auto_summary_pending = 1 WHERE id = ?")
+            .bind(item_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let selected = select_due(&pool).await.unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].id, item_id);
+        assert!(!selected[0].transcript_pending);
+        assert!(selected[0].auto_summary_pending);
+    }
+
+    #[tokio::test]
+    async fn pending_auto_summary_without_a_provider_is_cleared() {
+        let pool = test_pool().await;
+        let yt_feed = make_feed(&pool, "youtube").await;
+        let item_id = make_item(&pool, yt_feed, "summary", "fetched").await;
+        sqlx::query("UPDATE items SET auto_summary_pending = 1 WHERE id = ?")
+            .bind(item_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        tick(&pool, &Client::new(), Some(&[0; 32])).await.unwrap();
+
+        let pending: i64 = sqlx::query("SELECT auto_summary_pending FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get("auto_summary_pending");
+        assert_eq!(pending, 0);
     }
 
     #[tokio::test]
