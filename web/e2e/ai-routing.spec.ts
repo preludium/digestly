@@ -21,7 +21,7 @@ let originalIngestionSettings: unknown;
 let createdProviderIds: number[] = [];
 
 // Tagged @serial (issue #43): every test here creates/deletes AI providers and mutates the
-// instance-wide `ai_settings` row (text_provider_mode/text_provider_ids/video_provider_id) and,
+// instance-wide `ai_settings` row (text_provider_mode/text_provider_ids/video_provider_ids) and,
 // via beforeAll, the global ingestion `allow_private` setting - all admin-only, single-row
 // config a concurrent summarize call elsewhere in the suite would read. The tests within this
 // file already assumed serial execution (shared `createdProviderIds` bookkeeping, afterEach
@@ -44,7 +44,8 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
             await updateAiSettings(admin, {
                 text_provider_mode: "single",
                 text_provider_ids: [],
-                video_provider_id: null,
+                video_provider_mode: "single",
+                video_provider_ids: [],
             });
             for (const providerId of createdProviderIds) {
                 await deleteAiProvider(admin, providerId);
@@ -126,7 +127,7 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
         await page.getByRole("button", { name: "AI" }).click();
         await page.getByLabel("Text provider mode").click();
         await page.getByRole("option", { name: "Ordered fallback" }).click();
-        await page.locator("#fallback-provider").click();
+        await page.locator("#text-fallback-provider").click();
         await page
             .getByRole("option", { name: "Ordered second (ordered-second)" })
             .click();
@@ -225,7 +226,7 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
         ]);
     });
 
-    test("dedicated Gemini video selection excludes it from text routing", async ({
+    test("Gemini video route excludes its providers from text routing", async ({
         page,
     }) => {
         const text = await createProvider({
@@ -242,7 +243,8 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
             updateAiSettings(admin, {
                 text_provider_mode: "ordered",
                 text_provider_ids: [text],
-                video_provider_id: gemini,
+                video_provider_mode: "single",
+                video_provider_ids: [gemini],
             }),
         );
         await loginAs(page.request, ADMIN.username, ADMIN.password);
@@ -251,17 +253,18 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
         await expect(
             page.getByText("Gemini video (gemini-video)"),
         ).toBeVisible();
-        await expect(page.locator("#fallback-provider")).not.toContainText(
+        await expect(page.locator("#text-fallback-provider")).not.toContainText(
             "Gemini video",
         );
         expect(await withAdmin(aiSettings)).toMatchObject({
             text_provider_mode: "ordered",
             text_provider_ids: [text],
-            video_provider_id: gemini,
+            video_provider_mode: "single",
+            video_provider_ids: [gemini],
         });
     });
 
-    test("dedicated Gemini summarizes a YouTube item through the native route", async ({
+    test("Gemini summarizes a YouTube item through the native route", async ({
         page,
     }) => {
         const text = await createProvider({
@@ -278,7 +281,8 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
             await updateAiSettings(admin, {
                 text_provider_mode: "single",
                 text_provider_ids: [text],
-                video_provider_id: gemini,
+                video_provider_mode: "single",
+                video_provider_ids: [gemini],
             });
             await configureAiMock(admin, {
                 "gemini-video-success": {
@@ -301,6 +305,53 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
         });
         expect(await withAdmin(aiMockRequests)).toEqual([
             { kind: "gemini", model: "gemini-video-success" },
+        ]);
+    });
+
+    test("tries native video providers in configured order", async ({
+        page,
+    }) => {
+        const first = await createProvider({
+            name: "Video first",
+            provider_type: "gemini",
+            model: "gemini-video-first",
+        });
+        const second = await createProvider({
+            name: "Video second",
+            provider_type: "gemini",
+            model: "gemini-video-second",
+        });
+        await withAdmin(async (admin) => {
+            await updateAiSettings(admin, {
+                video_provider_mode: "ordered",
+                video_provider_ids: [first, second],
+            });
+            await configureAiMock(admin, {
+                "gemini-video-first": {
+                    status: 500,
+                    error: "first provider unavailable",
+                },
+                "gemini-video-second": {
+                    status: 200,
+                    text: "Second native video summary.",
+                },
+            });
+        });
+        await registerUser(page.request);
+        const { itemId } = await seedYoutubeFeed(page.request);
+
+        const summary = await page.request.post(
+            `/api/items/${itemId}/summarize`,
+        );
+        expect(summary.ok()).toBe(true);
+        await expect(summary.json()).resolves.toMatchObject({
+            summary: "Second native video summary.",
+            model: "gemini-video-second",
+            cached: false,
+        });
+        expect(await withAdmin(aiMockRequests)).toEqual([
+            { kind: "gemini", model: "gemini-video-first" },
+            { kind: "gemini", model: "gemini-video-second" },
         ]);
     });
 });

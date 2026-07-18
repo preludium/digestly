@@ -194,6 +194,7 @@ export interface NewAiProvider {
 }
 
 export type TextProviderMode = "single" | "ordered";
+export type VideoProviderMode = "single" | "ordered";
 
 /** Global AI generation params + current usage (prompt.md §6, §9.7). */
 export interface AiSettings {
@@ -206,7 +207,8 @@ export interface AiSettings {
     tokens_used_month: number;
     text_provider_mode: TextProviderMode;
     text_provider_ids: number[];
-    video_provider_id: number | null;
+    video_provider_mode: VideoProviderMode;
+    video_provider_ids: number[];
     youtube_auto_summary_enabled: boolean;
 }
 

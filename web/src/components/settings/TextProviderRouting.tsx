@@ -11,11 +11,17 @@ import {
 } from "@/components/ui/select";
 import { useUpdateAiSettings } from "@/hooks/useAi";
 import { apiError } from "@/lib/apiError";
-import type { AiProvider, AiSettings, TextProviderMode } from "@/lib/types";
+import type {
+    AiProvider,
+    AiSettings,
+    TextProviderMode,
+    VideoProviderMode,
+} from "@/lib/types";
 
 interface TextProviderRoutingProps {
     providers: AiProvider[];
     settings: AiSettings;
+    route?: "text" | "video";
 }
 
 export function effectiveTextProviderIds(
@@ -32,23 +38,40 @@ export function effectiveTextProviderIds(
 export function TextProviderRouting({
     providers,
     settings,
+    route = "text",
 }: TextProviderRoutingProps) {
     const update = useUpdateAiSettings();
-    const textProviders = providers.filter(
-        (provider) => !provider.is_video_only,
+    const textProviders = providers.filter((provider) =>
+        route === "video"
+            ? provider.provider_type === "gemini"
+            : !provider.is_video_only,
     );
-    const selectedIds = effectiveTextProviderIds(
-        providers,
-        settings.text_provider_ids,
-    );
+    const selectedIds =
+        route === "video"
+            ? settings.video_provider_ids.filter((id) =>
+                  textProviders.some((provider) => provider.id === id),
+              )
+            : effectiveTextProviderIds(providers, settings.text_provider_ids);
+    const mode =
+        route === "video"
+            ? settings.video_provider_mode
+            : settings.text_provider_mode;
     const selectedProvider = selectedIds[0] ?? null;
 
     const save = (
-        text_provider_mode: TextProviderMode,
-        text_provider_ids: number[],
+        provider_mode: TextProviderMode | VideoProviderMode,
+        provider_ids: number[],
     ) =>
         update.mutate(
-            { text_provider_mode, text_provider_ids },
+            route === "video"
+                ? {
+                      video_provider_mode: provider_mode,
+                      video_provider_ids: provider_ids,
+                  }
+                : {
+                      text_provider_mode: provider_mode,
+                      text_provider_ids: provider_ids,
+                  },
             {
                 onError: (error) =>
                     toast.error(apiError(error, "Could not save")),
@@ -67,17 +90,23 @@ export function TextProviderRouting({
         <div className="space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2">
                 <h3 className="text-[13px] font-bold tracking-wide">
-                    Text providers
+                    {route === "video"
+                        ? "YouTube video providers"
+                        : "Text providers"}
                 </h3>
                 <Select
-                    value={settings.text_provider_mode}
+                    value={mode}
                     onValueChange={(value: TextProviderMode) =>
                         save(value, selectedIds.slice(0, 1))
                     }
                     disabled={update.isPending}
                 >
                     <SelectTrigger
-                        aria-label="Text provider mode"
+                        aria-label={
+                            route === "video"
+                                ? "YouTube video provider mode"
+                                : "Text provider mode"
+                        }
                         className="w-44"
                     >
                         <SelectValue />
@@ -91,9 +120,11 @@ export function TextProviderRouting({
                 </Select>
             </div>
 
-            {settings.text_provider_mode === "single" ? (
+            {mode === "single" ? (
                 <div className="max-w-xs space-y-1.5">
-                    <Label htmlFor="text-provider">Text provider</Label>
+                    <Label htmlFor={`${route}-provider`}>
+                        {route === "video" ? "Video provider" : "Text provider"}
+                    </Label>
                     <Select
                         value={
                             selectedProvider === null
@@ -108,11 +139,15 @@ export function TextProviderRouting({
                         }
                         disabled={update.isPending}
                     >
-                        <SelectTrigger id="text-provider">
+                        <SelectTrigger id={`${route}-provider`}>
                             <SelectValue placeholder="Choose a provider" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="none">
+                                {route === "video"
+                                    ? "Off - use transcripts"
+                                    : "None"}
+                            </SelectItem>
                             {textProviders.map((provider) => (
                                 <SelectItem
                                     key={provider.id}
@@ -164,7 +199,7 @@ export function TextProviderRouting({
                         );
                     })}
                     <div className="max-w-xs space-y-1.5">
-                        <Label htmlFor="fallback-provider">
+                        <Label htmlFor={`${route}-fallback-provider`}>
                             Add fallback provider
                         </Label>
                         <Select
@@ -178,7 +213,7 @@ export function TextProviderRouting({
                             }}
                             disabled={update.isPending}
                         >
-                            <SelectTrigger id="fallback-provider">
+                            <SelectTrigger id={`${route}-fallback-provider`}>
                                 <SelectValue placeholder="Choose a provider" />
                             </SelectTrigger>
                             <SelectContent>

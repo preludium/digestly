@@ -1442,7 +1442,7 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
             "max_tokens": 1024, "temperature": 0.3, "timeout_secs": 60,
             "daily_token_budget": 0, "monthly_token_budget": 0,
             "text_provider_mode": "ordered", "text_provider_ids": [gem_id, groq_id],
-            "video_provider_id": null
+            "video_provider_mode": "single", "video_provider_ids": []
         })),
         Some(&admin_c),
     )
@@ -1454,19 +1454,19 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     let denied = call(
         &app,
         "PUT",
-        "/api/ai/video-provider",
-        Some(json!({ "provider_id": gem_id })),
+        "/api/ai/settings",
+        Some(json!({ "video_provider_ids": [gem_id] })),
         Some(&alice_c),
     )
     .await;
     assert_eq!(denied.status, StatusCode::FORBIDDEN);
 
-    // Only Gemini providers qualify for the dedicated video slot.
+    // Only Gemini providers qualify for the native video route.
     let bad = call(
         &app,
         "PUT",
-        "/api/ai/video-provider",
-        Some(json!({ "provider_id": groq_id })),
+        "/api/ai/settings",
+        Some(json!({ "video_provider_ids": [groq_id] })),
         Some(&admin_c),
     )
     .await;
@@ -1481,7 +1481,7 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
             "max_tokens": 2048, "temperature": 0.7, "timeout_secs": 90,
             "daily_token_budget": 10, "monthly_token_budget": 20,
             "text_provider_mode": "ordered", "text_provider_ids": [9999],
-            "video_provider_id": groq_id
+            "video_provider_ids": [groq_id]
         })),
         Some(&admin_c),
     )
@@ -1499,7 +1499,7 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
             "max_tokens": 3072, "temperature": 0.9, "timeout_secs": 120,
             "daily_token_budget": 30, "monthly_token_budget": 40,
             "text_provider_mode": "ordered", "text_provider_ids": [gem_id],
-            "video_provider_id": groq_id
+            "video_provider_ids": [groq_id]
         })),
         Some(&admin_c),
     )
@@ -1531,8 +1531,8 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     let missing = call(
         &app,
         "PUT",
-        "/api/ai/video-provider",
-        Some(json!({ "provider_id": 9999 })),
+        "/api/ai/settings",
+        Some(json!({ "video_provider_ids": [9999] })),
         Some(&admin_c),
     )
     .await;
@@ -1542,29 +1542,29 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     let ok = call(
         &app,
         "PUT",
-        "/api/ai/video-provider",
-        Some(json!({ "provider_id": gem_id })),
+        "/api/ai/settings",
+        Some(json!({ "video_provider_mode": "single", "video_provider_ids": [gem_id] })),
         Some(&admin_c),
     )
     .await;
     assert_eq!(ok.status, StatusCode::OK);
     let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
-    assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+    assert_eq!(settings.body["video_provider_ids"], json!([gem_id]));
     assert_eq!(settings.body["text_provider_mode"], "ordered");
     assert_eq!(settings.body["text_provider_ids"], json!([groq_id]));
 
-    // The unified settings patch distinguishes an omitted field from explicit null.
+    // The unified settings patch preserves an omitted route.
     let unified_set = call(
         &app,
         "PUT",
         "/api/ai/settings",
-        Some(json!({ "video_provider_id": gem_id })),
+        Some(json!({ "video_provider_mode": "single", "video_provider_ids": [gem_id] })),
         Some(&admin_c),
     )
     .await;
     assert_eq!(unified_set.status, StatusCode::OK);
     let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
-    assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+    assert_eq!(settings.body["video_provider_ids"], json!([gem_id]));
 
     let unified_omitted = call(
         &app,
@@ -1576,32 +1576,19 @@ async fn video_provider_setting_is_admin_only_and_gemini_only() {
     .await;
     assert_eq!(unified_omitted.status, StatusCode::OK);
     let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
-    assert_eq!(settings.body["video_provider_id"].as_i64(), Some(gem_id));
+    assert_eq!(settings.body["video_provider_ids"], json!([gem_id]));
 
     let unified_cleared = call(
         &app,
         "PUT",
         "/api/ai/settings",
-        Some(json!({ "video_provider_id": null })),
+        Some(json!({ "video_provider_ids": [] })),
         Some(&admin_c),
     )
     .await;
     assert_eq!(unified_cleared.status, StatusCode::OK);
     let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
-    assert!(settings.body["video_provider_id"].is_null());
-
-    // Clear with null.
-    let cleared = call(
-        &app,
-        "PUT",
-        "/api/ai/video-provider",
-        Some(json!({ "provider_id": null })),
-        Some(&admin_c),
-    )
-    .await;
-    assert_eq!(cleared.status, StatusCode::OK);
-    let settings = call(&app, "GET", "/api/ai/settings", None, Some(&admin_c)).await;
-    assert!(settings.body["video_provider_id"].is_null());
+    assert_eq!(settings.body["video_provider_ids"], json!([]));
 }
 
 #[tokio::test]

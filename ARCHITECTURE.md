@@ -211,11 +211,12 @@ summary (intro + key-point bullets + takeaways), cached in `item_summaries`. Whe
 watch link is surfaced more prominently. The reader renders: AI summary (primary) - collapsible
 full transcript - de-emphasized "Watch on YouTube".
 
-**Video-URL path (optional).** An admin can point `ai.video_provider_id` at a Gemini provider
-(Settings - AI - YouTube video summaries). Gemini is then sent the video URL itself, so videos
-with no captions at all still get a real summary; any failure falls back to the transcript flow.
-Gemini-only - it's the only supported API that accepts a video URL as model input - and it bills
-video at roughly 100 tokens per second of runtime, so the token budgets drain much faster.
+**Video-URL path (optional).** An admin can select one Gemini provider or an ordered Gemini
+fallback route in Settings - AI - YouTube video providers. Each provider receives the video URL,
+so videos with no captions can still get a real summary; if they all fail, Digestly uses the
+transcript flow. Gemini-only - it's the only supported API that accepts a video URL as model input
+- and it bills video at roughly 100 tokens per second of runtime, so the token budgets drain much
+faster.
 
 **Just regular videos.** Shorts are filtered at ingest (the channel feed marks them with a
 `/shorts/` link). Live recordings can only be identified from YouTube's player data, so they are
