@@ -64,8 +64,17 @@ jobs:
         run: pnpm test
 
   e2e:
-    name: E2E
+    name: E2E (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     runs-on: ubuntu-latest
+    # Each shard pays a full cargo build + frontend build before a single test runs; the tests
+    # themselves are seconds. A hung backend/browser should fail in minutes, not occupy the
+    # runner for hours. Starting point - tune against measured CI wall-clock.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -107,11 +116,113 @@ jobs:
 
       - name: Run e2e tests
         working-directory: web
-        run: pnpm run e2e
+        run: pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }} --reporter=blob
 
-      - name: Upload Playwright report
+      # Uploaded whether the shard passed or failed - merge-reports needs every shard's blob to
+      # assemble the aggregate report, and a green report is how coverage growth gets confirmed.
+      - name: Upload blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shardIndex }}
+          path: web/blob-report/
+          retention-days: 1
+
+      # Playwright's webServer output isn't retained by default (see playwright.config.ts) - this
+      # is the highest-value diagnostic artifact, since every ingest/digest/AI/ntfy failure in
+      # this suite is backend behavior.
+      - name: Upload backend log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-log-${{ matrix.shardIndex }}
+          path: web/e2e-logs/backend.log
+          retention-days: 1
+          if-no-files-found: ignore
+
+      - name: Upload fixture server log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-server-log-${{ matrix.shardIndex }}
+          path: web/e2e-logs/fixture-server.log
+          retention-days: 1
+          if-no-files-found: ignore
+
+      # trace/screenshot/video are retain-on-failure, so this is only non-empty on a failing
+      # shard; merge-reports also embeds them in the merged HTML report, but the raw files let a
+      # failure be inspected (e.g. `playwright show-trace`) without downloading the whole report.
+      - name: Upload traces and videos
         if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results-${{ matrix.shardIndex }}
+          path: web/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
+      # DB state at the moment of failure, so a CI-only failure can be inspected without
+      # reproducing it locally.
+      - name: Upload e2e database
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-db-${{ matrix.shardIndex }}
+          path: backend/.e2e-data/
+          retention-days: 1
+          if-no-files-found: ignore
+
+  merge-reports:
+    name: Merge e2e reports
+    if: ${{ !cancelled() }}
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: web/all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into one HTML report
+        working-directory: web
+        run: pnpm exec playwright merge-reports --reporter html ./all-blob-reports
+
+      # The gate is the aggregate: each matrix shard above reports its own pass/fail status, and
+      # GitHub requires all of them - this job only assembles the report reviewers actually read.
+      - name: Upload merged HTML report
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: web/playwright-report/
+          retention-days: 14
+
+      - name: Link merged report in job summary
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "### E2E report"
+            echo "Merged HTML report: download the **playwright-report** artifact from [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          } >> "$GITHUB_STEP_SUMMARY"

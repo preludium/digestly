@@ -1,11 +1,16 @@
 import { expect, test } from "@playwright/test";
 import { ADMIN, expectToast, loginAs } from "./support/api";
 
-// This spec sorts first alphabetically, so it runs before the others on the shared serial
-// DB. Restoring allow_registration=true (the finally block below) is load-bearing: every
-// later spec registers a user, and a left-closed toggle fails all of them. Keep the restore
-// robust - do not add page navigation inside the try that could detach the switch.
-test("admin manages the Open registration setting", async ({ page }) => {
+// Tagged @serial (issue #43): this test flips `allow_registration`, an instance-wide gate that
+// every `registerUser()` call in the whole suite depends on. Restoring allow_registration=true
+// (the finally block below) is load-bearing: every later spec registers a user, and a
+// left-closed toggle fails all of them. Keep the restore robust - do not add page navigation
+// inside the try that could detach the switch. The "parallel" project's `dependencies: ["serial"]`
+// (see playwright.config.ts) ensures this test - and the rest of the @serial project - always
+// finishes before any parallel-project test starts, so no other spec can observe the toggle off.
+test("admin manages the Open registration setting", { tag: "@serial" }, async ({
+    page,
+}) => {
     await loginAs(page.request, ADMIN.username, ADMIN.password);
     await page.goto("/admin/users");
 

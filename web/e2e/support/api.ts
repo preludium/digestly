@@ -70,10 +70,13 @@ export type AiProviderInput = {
 
 let usernameCounter = 0;
 
-/** Unique per call → order-independent tests and dodges the 60s per-user ingest cooldown. */
+/** Unique per call → order-independent tests and dodges the 60s per-user ingest cooldown.
+ *  Includes `process.pid` so two Playwright worker *processes* (each with its own
+ *  `usernameCounter` starting at 0) can't mint the same value for the same millisecond - a real
+ *  collision once the suite runs with more than one worker (issue #43 shard/parallelize work). */
 export function uniqueUsername(prefix = "e2e"): string {
     usernameCounter += 1;
-    return `${prefix}${Date.now().toString(36)}${usernameCounter}`;
+    return `${prefix}${process.pid.toString(36)}${Date.now().toString(36)}${usernameCounter}`;
 }
 
 async function ok(response: {
