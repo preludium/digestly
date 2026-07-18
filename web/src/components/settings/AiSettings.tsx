@@ -1,12 +1,4 @@
-import {
-    Pencil,
-    Plus,
-    Sparkles,
-    Trash2,
-    TriangleAlert,
-    Wifi,
-    Zap,
-} from "lucide-react";
+import { Pencil, Plus, Sparkles, Trash2, Wifi, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -19,17 +11,8 @@ import {
 } from "@/components/common/SettingsTile";
 import { AddProviderModal } from "@/components/settings/AddProviderModal";
 import { TextProviderRouting } from "@/components/settings/TextProviderRouting";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -43,7 +26,7 @@ import {
 } from "@/hooks/useAi";
 import { useAutosave } from "@/hooks/useAutosave";
 import { apiError } from "@/lib/apiError";
-import type { AiProvider, AiSettings as AiSettingsDto } from "@/lib/types";
+import type { AiProvider } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Admin AI tab (prompt.md §9.7): provider manager (active radio · test · delete · key hidden) +
@@ -114,94 +97,12 @@ function RoutingSettings({ providers }: { providers: AiProvider[] }) {
                 providers={providers}
                 settings={settings.data}
             />
-            <VideoProviderPicker
+            <TextProviderRouting
                 providers={providers}
                 settings={settings.data}
+                route="video"
             />
         </>
-    );
-}
-
-function VideoProviderPicker({
-    providers,
-    settings,
-}: {
-    providers: AiProvider[];
-    settings: AiSettingsDto;
-}) {
-    const update = useUpdateAiSettings();
-
-    const geminiProviders = providers.filter(
-        (p) => p.provider_type === "gemini",
-    );
-    const current = settings.video_provider_id;
-
-    const onChange = (value: string) => {
-        const id = value === "off" ? null : Number(value);
-        update.mutate(
-            { video_provider_id: id },
-            {
-                onSuccess: () =>
-                    toast(
-                        id === null
-                            ? "Video summaries use transcripts again"
-                            : "Video summaries now go to Gemini",
-                    ),
-                onError: (e) => toast.error(apiError(e, "Could not save")),
-            },
-        );
-    };
-
-    return (
-        <div className="space-y-3.5">
-            <div className="border-b border-border pb-2">
-                <h3 className="text-[13px] font-bold tracking-wide">
-                    YouTube video provider
-                </h3>
-            </div>
-            <p className="text-[13px] text-muted-foreground">
-                Summarize videos by sending Gemini the video URL directly, with
-                no transcript fetch - so videos without captions still get
-                summarized. Falls back to the transcript flow if the call fails.
-            </p>
-            {current !== null && (
-                <Alert variant="warning" className="text-[13px]">
-                    <TriangleAlert className="size-4" />
-                    Video is billed by runtime - roughly 100 tokens per second,
-                    so a 10-minute video costs about 60,000 tokens. The budgets
-                    below fill far faster than they do for articles.
-                </Alert>
-            )}
-            {geminiProviders.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">
-                    Add a <span className="font-medium">Google Gemini</span>{" "}
-                    provider above to enable this.
-                </p>
-            ) : (
-                <div className="max-w-xs space-y-1.5">
-                    <Label htmlFor="video-provider">Video provider</Label>
-                    <Select
-                        value={current === null ? "off" : String(current)}
-                        onValueChange={onChange}
-                        disabled={update.isPending}
-                    >
-                        <SelectTrigger id="video-provider">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="off">
-                                Off - use transcripts
-                            </SelectItem>
-                            {geminiProviders.map((p) => (
-                                <SelectItem key={p.id} value={String(p.id)}>
-                                    {p.name} ({p.model})
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
-        </div>
     );
 }
 
@@ -256,7 +157,18 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
     const patch = usePatchProvider();
     const test = useTestProvider();
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [editName, setEditName] = useState(false);
     const [editModel, setEditModel] = useState(false);
+
+    const saveName = (name: string) => {
+        patch.mutate(
+            { id: provider.id, name },
+            {
+                onSuccess: () => toast("Name updated"),
+                onError: (e) => toast.error(apiError(e, "Could not save")),
+            },
+        );
+    };
 
     const saveModel = (model: string) => {
         patch.mutate(
@@ -341,6 +253,15 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                     <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Rename provider"
+                        disabled={patch.isPending}
+                        onClick={() => setEditName(true)}
+                    >
+                        <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         aria-label="Change model"
                         disabled={patch.isPending}
                         onClick={() => setEditModel(true)}
@@ -358,6 +279,16 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                     </Button>
                 </div>
             </li>
+
+            <NameDialog
+                open={editName}
+                onOpenChange={setEditName}
+                title="Rename provider"
+                label="Provider name (account/project)"
+                initialValue={provider.name}
+                placeholder="My LLM"
+                onSubmit={saveName}
+            />
 
             <NameDialog
                 open={editModel}

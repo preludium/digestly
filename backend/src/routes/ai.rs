@@ -25,7 +25,6 @@ pub fn routes() -> Router<AppState> {
         .route("/ai/providers/:id/activate", post(activate_provider))
         .route("/ai/providers/:id/test", post(test_provider))
         .route("/ai/settings", get(get_ai_settings).put(put_ai_settings))
-        .route("/ai/video-provider", axum::routing::put(put_video_provider))
 }
 
 // ---------------------------------------------------------------------------
@@ -225,12 +224,12 @@ struct AiSettingsDto {
     monthly_token_budget: i64,
     tokens_used_today: i64,
     tokens_used_month: i64,
-    /// Dedicated Gemini provider for YouTube items (prompt.md §6a video path); null = off.
-    video_provider_id: Option<i64>,
+    video_provider_mode: String,
+    video_provider_ids: Vec<i64>,
     /// `single` uses the selected provider, falling back to the active provider by default;
     /// `ordered` tries configured providers in order.
     text_provider_mode: String,
-    /// Effective text provider IDs, filtered for the dedicated video provider.
+    /// Effective text provider IDs, filtered for all selected native video providers.
     text_provider_ids: Vec<i64>,
     youtube_auto_summary_enabled: bool,
 }
@@ -251,34 +250,12 @@ struct AiSettingsInput {
     text_provider_mode: Option<String>,
     #[serde(default)]
     text_provider_ids: Option<Vec<i64>>,
-    /// Absent preserves this setting; `null` clears it.
     #[serde(default)]
-    video_provider_id: SettingField<i64>,
+    video_provider_mode: Option<String>,
+    #[serde(default)]
+    video_provider_ids: Option<Vec<i64>>,
     #[serde(default)]
     youtube_auto_summary_enabled: Option<bool>,
-}
-
-#[derive(Default)]
-enum SettingField<T> {
-    #[default]
-    Absent,
-    Null,
-    Value(T),
-}
-
-impl<'de, T> Deserialize<'de> for SettingField<T>
-where
-    T: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Ok(match Option::<T>::deserialize(deserializer)? {
-            Some(value) => Self::Value(value),
-            None => Self::Null,
-        })
-    }
 }
 
 async fn get_ai_settings(
@@ -289,7 +266,10 @@ async fn get_ai_settings(
     let (day, month) = ai::budget::spent(&state.pool)
         .await
         .map_err(AppError::Internal)?;
-    let video_provider_id = provider::selected_video_provider_id(&state.pool)
+    let video_provider_mode = provider::video_provider_mode(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
+    let video_provider_ids = provider::selected_video_provider_ids(&state.pool)
         .await
         .map_err(AppError::Internal)?;
     let text_provider_mode = provider::text_provider_mode(&state.pool)
@@ -306,7 +286,8 @@ async fn get_ai_settings(
         monthly_token_budget: p.monthly_token_budget,
         tokens_used_today: day,
         tokens_used_month: month,
-        video_provider_id,
+        video_provider_mode,
+        video_provider_ids,
         text_provider_mode,
         text_provider_ids,
         youtube_auto_summary_enabled: crate::settings::get_bool(
@@ -324,20 +305,20 @@ async fn put_ai_settings(
     Json(body): Json<AiSettingsInput>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let mut tx = state.pool.begin().await?;
-    let current_video_id = provider::selected_video_provider_id_tx(&mut tx)
+    let current_video_ids = provider::selected_video_provider_ids_tx(&mut tx)
         .await
         .map_err(AppError::Internal)?;
-    let video_provider_is_present = !matches!(body.video_provider_id, SettingField::Absent);
-    let video_provider_id = match body.video_provider_id {
-        SettingField::Absent => current_video_id,
-        SettingField::Null => None,
-        SettingField::Value(id) => Some(id),
-    };
-
     if let Some(mode) = body.text_provider_mode.as_deref() {
         if !matches!(mode, "single" | "ordered") {
             return Err(AppError::BadRequest(
                 "text_provider_mode must be 'single' or 'ordered'".into(),
+            ));
+        }
+    }
+    if let Some(mode) = body.video_provider_mode.as_deref() {
+        if !matches!(mode, "single" | "ordered") {
+            return Err(AppError::BadRequest(
+                "video_provider_mode must be 'single' or 'ordered'".into(),
             ));
         }
     }
@@ -350,9 +331,13 @@ async fn put_ai_settings(
                 "text provider IDs must be unique".into(),
             ));
         }
-        if ids.iter().any(|id| Some(*id) == video_provider_id) {
+        let video_ids = body
+            .video_provider_ids
+            .as_ref()
+            .unwrap_or(&current_video_ids);
+        if ids.iter().any(|id| video_ids.contains(id)) {
             return Err(AppError::BadRequest(
-                "text provider IDs cannot include the video provider".into(),
+                "text provider IDs cannot include video providers".into(),
             ));
         }
         for id in ids {
@@ -369,8 +354,25 @@ async fn put_ai_settings(
         None
     };
 
-    if let Some(id) = video_provider_id {
-        ensure_gemini_provider_tx(&mut tx, &state.enc_key, id).await?;
+    let selected_video_ids = if let Some(ids) = body.video_provider_ids.as_ref() {
+        ensure_unique(ids, "video provider IDs")?;
+        for id in ids {
+            ensure_gemini_provider_tx(&mut tx, &state.enc_key, *id).await?;
+        }
+        Some(ids.clone())
+    } else {
+        None
+    };
+    if let Some(ids) = selected_video_ids.as_ref() {
+        if ids.iter().any(|id| {
+            body.text_provider_ids
+                .as_ref()
+                .is_some_and(|text_ids| text_ids.contains(id))
+        }) {
+            return Err(AppError::BadRequest(
+                "text provider IDs cannot include video providers".into(),
+            ));
+        }
     }
 
     let temperature = body
@@ -413,51 +415,16 @@ async fn put_ai_settings(
         )
         .await?;
     }
-    if video_provider_is_present {
-        match video_provider_id {
-            Some(id) => {
-                set_setting_tx(&mut tx, provider::VIDEO_PROVIDER_KEY, &id.to_string()).await?
-            }
-            None => {
-                sqlx::query("DELETE FROM app_settings WHERE key = ?")
-                    .bind(provider::VIDEO_PROVIDER_KEY)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-        }
+    if let Some(mode) = body.video_provider_mode {
+        set_setting_tx(&mut tx, provider::VIDEO_PROVIDER_MODE_KEY, &mode).await?;
     }
-    tx.commit().await?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-// ---------------------------------------------------------------------------
-// Video provider (prompt.md §6a video path)
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct VideoProviderInput {
-    /// `null` clears the slot (video items go back to the transcript flow).
-    provider_id: Option<i64>,
-}
-
-/// `PUT /api/ai/video-provider` - point the video slot at a Gemini provider, or clear it.
-async fn put_video_provider(
-    _admin: AdminUser,
-    State(state): State<AppState>,
-    Json(body): Json<VideoProviderInput>,
-) -> ApiResult<Json<serde_json::Value>> {
-    let mut tx = state.pool.begin().await?;
-    match body.provider_id {
-        None => {
-            sqlx::query("DELETE FROM app_settings WHERE key = ?")
-                .bind(provider::VIDEO_PROVIDER_KEY)
-                .execute(&mut *tx)
-                .await?;
-        }
-        Some(id) => {
-            ensure_gemini_provider_tx(&mut tx, &state.enc_key, id).await?;
-            set_setting_tx(&mut tx, provider::VIDEO_PROVIDER_KEY, &id.to_string()).await?;
-        }
+    if let Some(ids) = selected_video_ids {
+        set_setting_tx(
+            &mut tx,
+            provider::VIDEO_ROUTE_PROVIDER_IDS_KEY,
+            &serde_json::to_string(&ids).map_err(|error| AppError::Internal(error.into()))?,
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -476,6 +443,16 @@ async fn set_setting_tx(tx: &mut Transaction<'_, Sqlite>, key: &str, value: &str
     .bind(value)
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+fn ensure_unique(ids: &[i64], label: &str) -> ApiResult<()> {
+    let mut unique_ids = ids.to_vec();
+    unique_ids.sort_unstable();
+    unique_ids.dedup();
+    if unique_ids.len() != ids.len() {
+        return Err(AppError::BadRequest(format!("{label} must be unique")));
+    }
     Ok(())
 }
 

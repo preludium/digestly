@@ -222,7 +222,8 @@ export async function resetFixtures(request: APIRequestContext): Promise<void> {
 export async function aiSettings(request: APIRequestContext): Promise<{
     text_provider_mode: string;
     text_provider_ids: number[];
-    video_provider_id: number | null;
+    video_provider_mode: string;
+    video_provider_ids: number[];
 }> {
     const response = await request.get(`${APP_URL}/api/ai/settings`);
     await ok(response);

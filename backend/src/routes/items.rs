@@ -168,8 +168,7 @@ async fn list_items(
     let page_size = resolve_page_size(&state.pool, user.id, q.page_size).await;
     let page = q.page.unwrap_or(1).max(1);
     let offset = (page - 1) * page_size;
-    let video_provider =
-        crate::ai::provider::load_video_provider(&state.pool, &state.enc_key).await?;
+    let video_route = crate::ai::provider::load_video_route(&state.pool, &state.enc_key).await?;
     let text_route = crate::ai::provider::load_text_route(&state.pool, &state.enc_key).await?;
 
     // Count (same scope) → total pages.
@@ -194,9 +193,9 @@ async fn list_items(
                  COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
                  CASE WHEN fe.kind = 'youtube' THEN (",
     );
-    push_summary_exists(&mut qb, video_provider.as_ref(), &text_route, true);
+    push_summary_exists(&mut qb, &video_route, &text_route, true);
     qb.push(") ELSE (");
-    push_summary_exists(&mut qb, None, &text_route, false);
+    push_summary_exists(&mut qb, &[], &text_route, false);
     qb.push(") END AS has_summary, fe.site_url AS site_url, fe.icon_url AS feed_icon_url");
     push_scope(&mut qb, user.id, &filters);
     qb.push(" ORDER BY ");
@@ -222,7 +221,7 @@ async fn list_items(
 /// in the page query avoids treating stale, legacy, or differently-configured rows as summaries.
 fn push_summary_exists(
     qb: &mut QueryBuilder<'_, Sqlite>,
-    video_provider: Option<&crate::ai::provider::ResolvedProvider>,
+    video_route: &[crate::ai::provider::ResolvedProvider],
     text_route: &[crate::ai::provider::ResolvedProvider],
     is_video: bool,
 ) {
@@ -245,7 +244,7 @@ fn push_summary_exists(
     };
 
     if is_video {
-        if let Some(provider) = video_provider {
+        for provider in video_route {
             push_cache(provider, "video-topics-v1");
         }
         for provider in text_route {
@@ -352,21 +351,24 @@ async fn get_item(
 
     let kind: String = row.get("kind");
     let summary = if kind == "youtube" {
-        let video_provider =
-            crate::ai::provider::load_video_provider(&state.pool, &state.enc_key).await?;
-        match video_provider {
-            Some(provider) => {
-                cached_summary(
-                    &state.pool,
-                    id,
-                    provider.id,
-                    &provider.model,
-                    "video-topics-v1",
-                )
-                .await?
+        let video_route =
+            crate::ai::provider::load_video_route(&state.pool, &state.enc_key).await?;
+        let mut found = None;
+        for provider in video_route {
+            if let Some(summary) = cached_summary(
+                &state.pool,
+                id,
+                provider.id,
+                &provider.model,
+                "video-topics-v1",
+            )
+            .await?
+            {
+                found = Some(summary);
+                break;
             }
-            None => None,
         }
+        found
     } else {
         None
     };

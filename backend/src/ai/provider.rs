@@ -44,7 +44,7 @@ pub struct NewProvider {
 
 /// List all providers without keys (prompt.md §10 `GET /api/ai/providers`).
 pub async fn list(pool: &SqlitePool) -> Result<Vec<ProviderInfo>> {
-    let video_provider_id = selected_video_provider_id(pool).await?;
+    let video_provider_ids = selected_video_provider_ids(pool).await?;
     let rows = sqlx::query(
         "SELECT id, name, provider_type, api_style, base_url, model,
                 (api_key_enc IS NOT NULL) AS has_key, is_active
@@ -63,7 +63,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<ProviderInfo>> {
             model: r.get("model"),
             has_key: r.get::<i64, _>("has_key") != 0,
             is_active: r.get::<i64, _>("is_active") != 0,
-            is_video_only: Some(r.get("id")) == video_provider_id,
+            is_video_only: video_provider_ids.contains(&r.get("id")),
         })
         .collect())
 }
@@ -154,19 +154,16 @@ pub async fn delete(pool: &SqlitePool, id: i64) -> Result<bool> {
         .await?
         .rows_affected();
     if n > 0 {
-        sqlx::query("DELETE FROM app_settings WHERE key = ? AND value = ?")
-            .bind(VIDEO_PROVIDER_KEY)
-            .bind(id.to_string())
-            .execute(&mut *tx)
-            .await?;
+        remove_from_video_route(&mut tx, id).await?;
         remove_from_text_route(&mut tx, id).await?;
         tx.commit().await?;
     }
     Ok(n > 0)
 }
 
-/// The `app_settings` key holding the dedicated video-provider id (prompt.md §6a video path).
-pub const VIDEO_PROVIDER_KEY: &str = "ai.video_provider_id";
+/// `app_settings` keys for the Gemini-native YouTube provider route.
+pub const VIDEO_PROVIDER_MODE_KEY: &str = "ai.video_provider_mode";
+pub const VIDEO_ROUTE_PROVIDER_IDS_KEY: &str = "ai.video_provider_ids";
 pub const TEXT_PROVIDER_MODE_KEY: &str = "ai.text_provider_mode";
 /// The pre-public-DTO key is read for upgrades from the routing WIP, but never written.
 const LEGACY_ROUTING_MODE_KEY: &str = "ai.routing_mode";
@@ -178,12 +175,12 @@ pub async fn load_text_route(
     pool: &SqlitePool,
     enc_key: &[u8; 32],
 ) -> Result<Vec<ResolvedProvider>> {
-    let video_id = selected_video_provider_id(pool).await?;
+    let video_ids = selected_video_provider_ids(pool).await?;
     let ids = text_provider_ids(pool).await?;
 
     let mut route = Vec::with_capacity(ids.len());
     for id in ids {
-        if Some(id) == video_id {
+        if video_ids.contains(&id) {
             continue;
         }
         if let Some(provider) = load_one(pool, enc_key, id).await? {
@@ -223,53 +220,95 @@ pub async fn load_one_tx(
     resolve(row, enc_key)
 }
 
-/// The dedicated video provider (prompt.md §6a): the provider `ai.video_provider_id` points at,
-/// used for YouTube items only. `None` (feature off) when the setting is unset, the provider row
-/// is gone, or the row isn't a Gemini provider - the only type whose API accepts a video URL.
+/// Configured Gemini providers for native YouTube summaries, in preference order.
+pub async fn load_video_route(
+    pool: &SqlitePool,
+    enc_key: &[u8; 32],
+) -> Result<Vec<ResolvedProvider>> {
+    let mut route = Vec::new();
+    for id in selected_video_provider_ids(pool).await? {
+        let Some(p) = load_one(pool, enc_key, id).await? else {
+            continue;
+        };
+        if p.provider_type == "gemini" {
+            route.push(p);
+        } else {
+            tracing::warn!(provider_id = id, provider_type = %p.provider_type,
+                "video provider route points at a non-gemini provider - ignoring");
+        }
+    }
+    Ok(route)
+}
+
+#[cfg(test)]
 pub async fn load_video_provider(
     pool: &SqlitePool,
     enc_key: &[u8; 32],
 ) -> Result<Option<ResolvedProvider>> {
-    let Some(id) = selected_video_provider_id(pool).await? else {
-        return Ok(None);
-    };
-    let Some(p) = load_one(pool, enc_key, id).await? else {
-        return Ok(None);
-    };
-    if p.provider_type != "gemini" {
-        tracing::warn!(provider_id = id, provider_type = %p.provider_type,
-            "video provider setting points at a non-gemini provider - ignoring");
-        return Ok(None);
-    }
-    Ok(Some(p))
+    Ok(load_video_route(pool, enc_key).await?.into_iter().next())
 }
 
-pub async fn selected_video_provider_id(pool: &SqlitePool) -> Result<Option<i64>> {
-    Ok(setting(pool, VIDEO_PROVIDER_KEY)
-        .await?
-        .and_then(|value| value.parse::<i64>().ok()))
+pub async fn selected_video_provider_ids(pool: &SqlitePool) -> Result<Vec<i64>> {
+    route_provider_ids(pool, VIDEO_PROVIDER_MODE_KEY, VIDEO_ROUTE_PROVIDER_IDS_KEY).await
 }
 
-pub async fn selected_video_provider_id_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-) -> Result<Option<i64>> {
-    Ok(sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(VIDEO_PROVIDER_KEY)
+pub async fn selected_video_provider_ids_tx(tx: &mut Transaction<'_, Sqlite>) -> Result<Vec<i64>> {
+    let ids = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
+        .bind(VIDEO_ROUTE_PROVIDER_IDS_KEY)
         .fetch_optional(&mut **tx)
         .await?
         .map(|row| row.get::<String, _>("value"))
-        .and_then(|value| value.parse::<i64>().ok()))
+        .and_then(|value| serde_json::from_str::<Vec<i64>>(&value).ok())
+        .unwrap_or_default();
+    if route_mode_tx(tx, VIDEO_PROVIDER_MODE_KEY).await? == "ordered" {
+        Ok(ids)
+    } else {
+        Ok(ids.into_iter().take(1).collect())
+    }
+}
+
+pub async fn video_provider_mode(pool: &SqlitePool) -> Result<String> {
+    route_mode(pool, VIDEO_PROVIDER_MODE_KEY).await
 }
 
 /// The text providers selected by the current routing configuration. Single mode falls back to the
 /// active provider only when no valid explicit selection exists.
 pub async fn selected_text_provider_ids(pool: &SqlitePool) -> Result<Vec<i64>> {
-    let video_id = selected_video_provider_id(pool).await?;
+    let video_ids = selected_video_provider_ids(pool).await?;
     Ok(text_provider_ids(pool)
         .await?
         .into_iter()
-        .filter(|id| Some(*id) != video_id)
+        .filter(|id| !video_ids.contains(id))
         .collect())
+}
+
+async fn route_provider_ids(pool: &SqlitePool, mode_key: &str, ids_key: &str) -> Result<Vec<i64>> {
+    let ids = setting(pool, ids_key)
+        .await?
+        .and_then(|value| serde_json::from_str::<Vec<i64>>(&value).ok())
+        .unwrap_or_default();
+    if route_mode(pool, mode_key).await? == "ordered" {
+        Ok(ids)
+    } else {
+        Ok(ids.into_iter().take(1).collect())
+    }
+}
+
+async fn route_mode(pool: &SqlitePool, key: &str) -> Result<String> {
+    Ok(match setting(pool, key).await?.as_deref() {
+        Some("ordered") => "ordered".to_string(),
+        _ => "single".to_string(),
+    })
+}
+
+async fn remove_from_video_route(tx: &mut Transaction<'_, Sqlite>, id: i64) -> Result<()> {
+    remove_from_route(
+        tx,
+        VIDEO_ROUTE_PROVIDER_IDS_KEY,
+        VIDEO_PROVIDER_MODE_KEY,
+        id,
+    )
+    .await
 }
 
 async fn text_provider_ids(pool: &SqlitePool) -> Result<Vec<i64>> {
@@ -297,8 +336,17 @@ async fn remove_from_text_route(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     id: i64,
 ) -> Result<()> {
+    remove_from_route(tx, TEXT_ROUTE_PROVIDER_IDS_KEY, TEXT_PROVIDER_MODE_KEY, id).await
+}
+
+async fn remove_from_route(
+    tx: &mut Transaction<'_, Sqlite>,
+    ids_key: &str,
+    mode_key: &str,
+    id: i64,
+) -> Result<()> {
     let Some(value) = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(TEXT_ROUTE_PROVIDER_IDS_KEY)
+        .bind(ids_key)
         .fetch_optional(&mut **tx)
         .await?
         .map(|row| row.get::<String, _>("value"))
@@ -315,9 +363,9 @@ async fn remove_from_text_route(
     if filtered.len() == serde_json::from_str::<Vec<i64>>(&value)?.len() {
         return Ok(());
     }
-    if filtered.is_empty() && text_provider_mode_tx(tx).await? == "single" {
+    if filtered.is_empty() && route_mode_tx(tx, mode_key).await? == "single" {
         sqlx::query("DELETE FROM app_settings WHERE key = ?")
-            .bind(TEXT_ROUTE_PROVIDER_IDS_KEY)
+            .bind(ids_key)
             .execute(&mut **tx)
             .await?;
         return Ok(());
@@ -325,26 +373,29 @@ async fn remove_from_text_route(
     sqlx::query(
         "INSERT INTO app_settings (key, value) VALUES (?, ?)\n         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
-    .bind(TEXT_ROUTE_PROVIDER_IDS_KEY)
+    .bind(ids_key)
     .bind(serde_json::to_string(&filtered)?)
     .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-async fn text_provider_mode_tx(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<String> {
+async fn route_mode_tx(tx: &mut Transaction<'_, Sqlite>, key: &str) -> Result<String> {
     let value = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-        .bind(TEXT_PROVIDER_MODE_KEY)
+        .bind(key)
         .fetch_optional(&mut **tx)
         .await?
         .map(|row| row.get::<String, _>("value"));
     let value = match value {
         Some(value) => Some(value),
-        None => sqlx::query("SELECT value FROM app_settings WHERE key = ?")
-            .bind(LEGACY_ROUTING_MODE_KEY)
-            .fetch_optional(&mut **tx)
-            .await?
-            .map(|row| row.get::<String, _>("value")),
+        None if key == TEXT_PROVIDER_MODE_KEY => {
+            sqlx::query("SELECT value FROM app_settings WHERE key = ?")
+                .bind(LEGACY_ROUTING_MODE_KEY)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|row| row.get::<String, _>("value"))
+        }
+        None => None,
     };
     Ok(match value.as_deref() {
         Some("ordered") | Some("route") => "ordered".to_string(),
@@ -428,10 +479,11 @@ mod tests {
 
     async fn set_video_provider_setting(pool: &SqlitePool, id: i64) {
         sqlx::query(
-            "INSERT INTO app_settings (key, value) VALUES ('ai.video_provider_id', ?)
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
-        .bind(id.to_string())
+        .bind(VIDEO_ROUTE_PROVIDER_IDS_KEY)
+        .bind(serde_json::json!([id]).to_string())
         .execute(pool)
         .await
         .unwrap();
@@ -536,6 +588,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ordered_video_route_preserves_order_and_excludes_its_providers_from_text() {
+        let pool = test_pool().await;
+        let first = make_provider(&pool, "gemini").await;
+        let second = make_provider(&pool, "gemini").await;
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, 'ordered')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(VIDEO_PROVIDER_MODE_KEY)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(VIDEO_ROUTE_PROVIDER_IDS_KEY)
+        .bind(serde_json::json!([first, second]).to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO app_settings (key, value) VALUES (?, ?)")
+            .bind(TEXT_ROUTE_PROVIDER_IDS_KEY)
+            .bind(serde_json::json!([first, second]).to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            load_video_route(&pool, &ENC_KEY)
+                .await
+                .unwrap()
+                .iter()
+                .map(|provider| provider.id)
+                .collect::<Vec<_>>(),
+            [first, second]
+        );
+        assert!(selected_text_provider_ids(&pool).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn video_provider_rejects_non_gemini_types() {
         let pool = test_pool().await;
         let id = make_provider(&pool, "groq").await;
@@ -567,7 +660,8 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        let row = sqlx::query("SELECT value FROM app_settings WHERE key = 'ai.video_provider_id'")
+        let row = sqlx::query("SELECT value FROM app_settings WHERE key = ?")
+            .bind(VIDEO_ROUTE_PROVIDER_IDS_KEY)
             .fetch_optional(&pool)
             .await
             .unwrap();

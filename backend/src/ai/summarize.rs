@@ -83,17 +83,17 @@ pub async fn summarize_item(
     let mut item = load_item(pool, item_id).await?;
     let is_video = item.kind == "youtube";
 
-    // Dedicated video provider (§6a): Gemini summarizes the video by URL - no transcript needed.
-    let video_provider = if is_video {
-        provider::load_video_provider(pool, enc_key).await?
+    // Native video route: Gemini summarizes the URL before the transcript/text route.
+    let video_route = if is_video {
+        provider::load_video_route(pool, enc_key).await?
     } else {
-        None
+        Vec::new()
     };
 
     // Cache lookup follows the same preference order as live calls. Provider identity and summary
     // kind prevent same-named models and native-video output from colliding.
     if !force {
-        if let Some(vp) = &video_provider {
+        for vp in &video_route {
             if let Some(text) = cached(pool, item_id, vp.id, &vp.model, "video-topics-v1").await? {
                 return Ok(SummaryResult {
                     summary: text,
@@ -132,13 +132,13 @@ pub async fn summarize_item(
         }
     }
 
-    if video_provider.is_none() && text_route.is_empty() {
+    if video_route.is_empty() && text_route.is_empty() {
         return Err(SummarizeError::NotConfigured);
     }
 
     let params = AiParams::load(pool).await;
 
-    if let Some(vp) = &video_provider {
+    for vp in &video_route {
         if let Some(url) = item.url.clone() {
             // Budget guard before spending; video usage is large (~100 tokens/sec of video).
             budget::check(pool, &params)
@@ -178,8 +178,8 @@ pub async fn summarize_item(
                 }
                 // Private video, free-tier daily cap, rate limit, outage: never a dead end -
                 // the transcript flow below is exactly what ran before this feature existed.
-                Err(e) => tracing::warn!(item_id, error = %e,
-                    "video provider failed - falling back to the transcript flow"),
+                Err(e) => tracing::warn!(item_id, provider_id = vp.id, error = %e,
+                    "video provider failed - trying the next configured provider"),
             }
         }
     }
@@ -571,8 +571,8 @@ mod tests {
             "INSERT INTO app_settings (key, value) VALUES (?, ?)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
-        .bind(provider::VIDEO_PROVIDER_KEY)
-        .bind(id.to_string())
+        .bind(provider::VIDEO_ROUTE_PROVIDER_IDS_KEY)
+        .bind(serde_json::json!([id]).to_string())
         .execute(pool)
         .await
         .unwrap();

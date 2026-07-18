@@ -143,16 +143,17 @@ function ProviderForm({
                 </Select>
             </div>
 
+            <Field label="Provider name (account/project)">
+                <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={custom ? "My LLM" : preset?.name}
+                    autoFocus
+                />
+            </Field>
+
             {custom && (
                 <>
-                    <Field label="Name">
-                        <Input
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="My LLM"
-                            autoFocus
-                        />
-                    </Field>
                     <Field label="Base URL">
                         <Input
                             value={baseUrl}
