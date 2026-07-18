@@ -31,18 +31,25 @@ export const FIXTURE = {
     rssItemTitle: RSS_ITEM_TITLE,
     summaryItemTitle: SUMMARY_ITEM_TITLE,
     aiBaseUrl: "http://localhost:8098/ai-mock/openai",
+    aiAnthropicBaseUrl: "http://localhost:8098/ai-mock/anthropic",
 };
 
 export type AiMockResponse = {
     status: number;
     text?: string;
     error?: string;
+    /** Delay before responding, e.g. to force a client-side timeout. */
+    delayMs?: number;
+    /** Respond 200 with a body the client can't parse, instead of the normal shape. */
+    malformed?: boolean;
 };
 
 export type AiProviderInput = {
     name: string;
     provider_type: string;
     model: string;
+    /** Defaults to "openai". Pass "anthropic" to exercise the fixture's /messages route. */
+    api_style?: string;
 };
 
 let usernameCounter = 0;
@@ -111,11 +118,15 @@ export async function createFixtureAiProvider(
     request: APIRequestContext,
     input: AiProviderInput,
 ): Promise<number> {
+    const apiStyle = input.api_style ?? "openai";
     const response = await request.post(`${APP_URL}/api/ai/providers`, {
         data: {
             ...input,
-            api_style: "openai",
-            base_url: FIXTURE.aiBaseUrl,
+            api_style: apiStyle,
+            base_url:
+                apiStyle === "anthropic"
+                    ? FIXTURE.aiAnthropicBaseUrl
+                    : FIXTURE.aiBaseUrl,
             key: "e2e-fixture-key",
         },
     });
@@ -135,6 +146,31 @@ export async function deleteAiProvider(
 
 export async function resetAiMock(request: APIRequestContext): Promise<void> {
     const response = await request.post("http://localhost:8098/ai-mock/reset");
+    await ok(response);
+}
+
+export type NtfyReceipt = {
+    topic: string;
+    title: string | null;
+    priority: string | null;
+    tags: string | null;
+    click: string | null;
+    hasAuth: boolean;
+    body: string;
+};
+
+/** GET the fake ntfy server's recorded pushes, so a spec can assert a notification actually fired. */
+export async function ntfyReceipts(
+    request: APIRequestContext,
+): Promise<NtfyReceipt[]> {
+    const response = await request.get("http://localhost:8098/ntfy/_received");
+    await ok(response);
+    return ((await response.json()) as { receipts: NtfyReceipt[] }).receipts;
+}
+
+/** Clears every fixture server's injected state (AI overrides, ntfy receipts, flaky counters). */
+export async function resetFixtures(request: APIRequestContext): Promise<void> {
+    const response = await request.post("http://localhost:8098/_control/reset");
     await ok(response);
 }
 
