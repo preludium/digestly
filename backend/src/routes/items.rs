@@ -168,6 +168,9 @@ async fn list_items(
     let page_size = resolve_page_size(&state.pool, user.id, q.page_size).await;
     let page = q.page.unwrap_or(1).max(1);
     let offset = (page - 1) * page_size;
+    let video_provider =
+        crate::ai::provider::load_video_provider(&state.pool, &state.enc_key).await?;
+    let text_route = crate::ai::provider::load_text_route(&state.pool, &state.enc_key).await?;
 
     // Count (same scope) → total pages.
     let mut cb = QueryBuilder::new("SELECT COUNT(*) AS n");
@@ -188,10 +191,13 @@ async fn list_items(
                 i.transcript_status AS transcript_status, fe.kind AS kind, s.content_type AS content_type, \
                 c.name AS category, \
                 COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
-                COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
-                (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count, \
-                fe.site_url AS site_url, fe.icon_url AS feed_icon_url",
+                 COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
+                 CASE WHEN fe.kind = 'youtube' THEN (",
     );
+    push_summary_exists(&mut qb, video_provider.as_ref(), &text_route, true);
+    qb.push(") ELSE (");
+    push_summary_exists(&mut qb, None, &text_route, false);
+    qb.push(") END AS has_summary, fe.site_url AS site_url, fe.icon_url AS feed_icon_url");
     push_scope(&mut qb, user.id, &filters);
     qb.push(" ORDER BY ");
     qb.push(sort_clause(&sort)); // whitelisted &'static str - never user input
@@ -210,6 +216,49 @@ async fn list_items(
         total_pages,
         total_count,
     }))
+}
+
+/// Appends one correlated cache predicate using the routes resolved for this request. Keeping this
+/// in the page query avoids treating stale, legacy, or differently-configured rows as summaries.
+fn push_summary_exists(
+    qb: &mut QueryBuilder<'_, Sqlite>,
+    video_provider: Option<&crate::ai::provider::ResolvedProvider>,
+    text_route: &[crate::ai::provider::ResolvedProvider],
+    is_video: bool,
+) {
+    let mut first = true;
+    let mut push_cache = |provider: &crate::ai::provider::ResolvedProvider,
+                          summary_kind: &'static str| {
+        if !first {
+            qb.push(" OR ");
+        }
+        first = false;
+        qb.push(
+            "EXISTS (SELECT 1 FROM item_summaries su WHERE su.item_id = i.id AND su.provider_id = ",
+        );
+        qb.push_bind(provider.id);
+        qb.push(" AND su.model = ");
+        qb.push_bind(provider.model.clone());
+        qb.push(" AND su.summary_kind = ");
+        qb.push_bind(summary_kind);
+        qb.push(" AND TRIM(su.summary_text) <> '')");
+    };
+
+    if is_video {
+        if let Some(provider) = video_provider {
+            push_cache(provider, "video-topics-v1");
+        }
+        for provider in text_route {
+            push_cache(provider, "text-video-topics-v1");
+        }
+    } else {
+        for provider in text_route {
+            push_cache(provider, "text");
+        }
+    }
+    if first {
+        qb.push("0");
+    }
 }
 
 fn row_to_item(r: &sqlx::sqlite::SqliteRow) -> ItemDto {
@@ -234,7 +283,7 @@ fn row_to_item(r: &sqlx::sqlite::SqliteRow) -> ItemDto {
         comments_count: r.get("comments_count"),
         upvote_ratio: r.get("upvote_ratio"),
         transcript_status: r.get("transcript_status"),
-        has_summary: r.get::<i64, _>("summary_count") > 0,
+        has_summary: r.get::<i64, _>("has_summary") != 0,
         site_url: r.get("site_url"),
         feed_icon_url: r.get("feed_icon_url"),
     }
@@ -264,6 +313,7 @@ struct ItemDetailDto {
     content_html: Option<String>,
     transcript_text: Option<String>,
     summary: Option<String>,
+    summary_kind: Option<String>,
 }
 
 /// `GET /api/items/{id}` - full item for the preview surface (§9.1a). 404 unless the caller
@@ -284,8 +334,8 @@ async fn get_item(
                 fe.icon_url AS feed_icon_url, \
                  s.content_type AS content_type, c.name AS category, \
                  COALESCE(NULLIF(s.title_override, ''), NULLIF(fe.title, ''), fe.feed_url) AS feed_title, \
-                 COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
-                 (SELECT COUNT(*) FROM item_summaries su WHERE su.item_id = i.id) AS summary_count \
+                  COALESCE(st.is_read, 0) AS is_read, COALESCE(st.is_starred, 0) AS is_starred, \
+                  0 AS has_summary \
           FROM items i \
           JOIN subscriptions s ON s.feed_id = i.feed_id AND s.user_id = ? \
           JOIN feeds fe ON fe.id = i.feed_id \
@@ -306,7 +356,14 @@ async fn get_item(
             crate::ai::provider::load_video_provider(&state.pool, &state.enc_key).await?;
         match video_provider {
             Some(provider) => {
-                cached_summary(&state.pool, id, provider.id, &provider.model, "video").await?
+                cached_summary(
+                    &state.pool,
+                    id,
+                    provider.id,
+                    &provider.model,
+                    "video-topics-v1",
+                )
+                .await?
             }
             None => None,
         }
@@ -314,16 +371,22 @@ async fn get_item(
         None
     };
     let summary = match summary {
-        Some(summary) => Some(summary),
+        Some(summary) => Some((summary, "video-topics-v1".to_string())),
         None => {
             let text_route =
                 crate::ai::provider::load_text_route(&state.pool, &state.enc_key).await?;
             let mut found = None;
             for provider in text_route {
+                let summary_kind = if kind == "youtube" {
+                    "text-video-topics-v1"
+                } else {
+                    "text"
+                };
                 if let Some(summary) =
-                    cached_summary(&state.pool, id, provider.id, &provider.model, "text").await?
+                    cached_summary(&state.pool, id, provider.id, &provider.model, summary_kind)
+                        .await?
                 {
-                    found = Some(summary);
+                    found = Some((summary, summary_kind.to_string()));
                     break;
                 }
             }
@@ -331,11 +394,14 @@ async fn get_item(
         }
     };
 
+    let mut item = row_to_item(&row);
+    item.has_summary = summary.is_some();
     let detail = ItemDetailDto {
         content_html: row.get("content_html"),
         transcript_text: row.get("transcript_text"),
-        summary,
-        item: row_to_item(&row),
+        summary: summary.as_ref().map(|(text, _)| text.clone()),
+        summary_kind: summary.map(|(_, kind)| kind),
+        item,
     };
     Ok(Json(detail))
 }
@@ -349,7 +415,8 @@ async fn cached_summary(
 ) -> Result<Option<String>, sqlx::Error> {
     Ok(sqlx::query(
         "SELECT summary_text FROM item_summaries \
-         WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?",
+          WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?
+            AND TRIM(summary_text) <> ''",
     )
     .bind(item_id)
     .bind(provider_id)
@@ -451,6 +518,7 @@ struct SummarizeQuery {
 #[derive(Serialize)]
 struct SummaryDto {
     summary: String,
+    summary_kind: String,
     model: String,
     cached: bool,
 }
@@ -471,6 +539,7 @@ async fn summarize(
     match summarize_item(&state.pool, &state.http_client, &state.enc_key, id, force).await {
         Ok(r) => Ok(Json(SummaryDto {
             summary: r.summary,
+            summary_kind: r.summary_kind,
             model: r.model,
             cached: r.cached,
         })),

@@ -123,6 +123,7 @@ export interface ItemDetail extends Item {
     content_html: string | null;
     transcript_text: string | null;
     summary: string | null;
+    summary_kind: string | null;
 }
 
 export interface ItemsPage {
@@ -214,6 +215,7 @@ export type AiSettingsInput = Partial<
 
 export interface SummaryResult {
     summary: string;
+    summary_kind: string;
     model: string;
     cached: boolean;
 }

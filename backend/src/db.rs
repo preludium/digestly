@@ -116,4 +116,80 @@ mod tests {
         assert_eq!(rows[1].get::<i64, _>("provider_id"), -3);
         assert_eq!(rows[2].get::<i64, _>("provider_id"), -2);
     }
+
+    #[tokio::test]
+    async fn video_topic_summary_kinds_migration_preserves_all_rows() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE items (id INTEGER PRIMARY KEY);
+             CREATE TABLE item_summaries (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+                 provider_id INTEGER NOT NULL,
+                 summary_kind TEXT NOT NULL CHECK (summary_kind IN ('text', 'video')),
+                 model TEXT NOT NULL,
+                 api_style TEXT NOT NULL CHECK (api_style IN ('openai', 'anthropic')),
+                 summary_text TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 UNIQUE (item_id, provider_id, summary_kind)
+             );
+             INSERT INTO items (id) VALUES (1);
+             INSERT INTO item_summaries
+                 (id, item_id, provider_id, summary_kind, model, api_style, summary_text, created_at)
+             VALUES
+                 (7, 1, 5, 'text', 'text-model', 'openai', 'legacy text', '2024-01-02 03:04:05'),
+                 (8, 1, 6, 'video', 'video-model', 'anthropic', 'legacy video', '2024-02-03 04:05:06'),
+                 (9, 1, -9, 'text', 'old-model', 'openai', 'negative provider', '2024-03-04 05:06:07');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0005_video_topic_summary_kinds.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows = sqlx::query(
+            "SELECT id, provider_id, summary_kind, summary_text, created_at
+             FROM item_summaries ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].get::<i64, _>("id"), 7);
+        assert_eq!(rows[0].get::<String, _>("summary_kind"), "text");
+        assert_eq!(rows[1].get::<String, _>("summary_kind"), "video");
+        assert_eq!(rows[2].get::<i64, _>("provider_id"), -9);
+        assert_eq!(
+            rows[2].get::<String, _>("summary_text"),
+            "negative provider"
+        );
+        assert_eq!(
+            rows[2].get::<String, _>("created_at"),
+            "2024-03-04 05:06:07"
+        );
+
+        for kind in ["video-topics-v1", "text-video-topics-v1"] {
+            sqlx::query(
+                "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+                 VALUES (1, ?, ?, 'm', 'openai', 'current')",
+            )
+            .bind(if kind == "video-topics-v1" { 10 } else { 11 })
+            .bind(kind)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert!(sqlx::query(
+            "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+             VALUES (1, 12, 'invalid', 'm', 'openai', 'no')",
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+    }
 }

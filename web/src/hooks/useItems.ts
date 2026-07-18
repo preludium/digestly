@@ -129,7 +129,14 @@ export function useSummarize() {
             ),
         onSuccess: (res, { id }) => {
             qc.setQueryData<ItemDetail>(["item", id], (old) =>
-                old ? { ...old, summary: res.summary, has_summary: true } : old,
+                old
+                    ? {
+                          ...old,
+                          summary: res.summary,
+                          summary_kind: res.summary_kind,
+                          has_summary: true,
+                      }
+                    : old,
             );
             qc.invalidateQueries({ queryKey: ["item", id] });
             qc.invalidateQueries({ queryKey: ITEMS_KEY });

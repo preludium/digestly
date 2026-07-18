@@ -17,6 +17,7 @@ const TRANSCRIPT_CAP: usize = 28_000;
 /// A summarize result surfaced to the API.
 pub struct SummaryResult {
     pub summary: String,
+    pub summary_kind: String,
     pub model: String,
     pub cached: bool,
 }
@@ -92,9 +93,10 @@ pub async fn summarize_item(
     // kind prevent same-named models and native-video output from colliding.
     if !force {
         if let Some(vp) = &video_provider {
-            if let Some(text) = cached(pool, item_id, vp.id, &vp.model, "video").await? {
+            if let Some(text) = cached(pool, item_id, vp.id, &vp.model, "video-topics-v1").await? {
                 return Ok(SummaryResult {
                     summary: text,
+                    summary_kind: "video-topics-v1".into(),
                     model: vp.model.clone(),
                     cached: true,
                 });
@@ -106,12 +108,22 @@ pub async fn summarize_item(
                 item_id,
                 text_provider.id,
                 &text_provider.model,
-                "text",
+                if is_video {
+                    "text-video-topics-v1"
+                } else {
+                    "text"
+                },
             )
             .await?
             {
                 return Ok(SummaryResult {
                     summary: text,
+                    summary_kind: if is_video {
+                        "text-video-topics-v1"
+                    } else {
+                        "text"
+                    }
+                    .into(),
                     model: text_provider.model.clone(),
                     cached: true,
                 });
@@ -137,8 +149,6 @@ pub async fn summarize_item(
                 vp,
                 &url,
                 &prompt,
-                video_max_tokens(params.max_tokens),
-                params.temperature,
                 params.timeout_secs,
             )
             .await
@@ -150,7 +160,7 @@ pub async fn summarize_item(
                         item_id,
                         NewSummary {
                             provider_id: vp.id,
-                            summary_kind: "video",
+                            summary_kind: "video-topics-v1",
                             model: &vp.model,
                             api_style: vp.api_style.as_str(),
                             text: &resp.text,
@@ -160,6 +170,7 @@ pub async fn summarize_item(
                     .await?;
                     return Ok(SummaryResult {
                         summary: resp.text,
+                        summary_kind: "video-topics-v1".into(),
                         model: vp.model.clone(),
                         cached: false,
                     });
@@ -234,7 +245,11 @@ pub async fn summarize_item(
                     item_id,
                     NewSummary {
                         provider_id: text_provider.id,
-                        summary_kind: "text",
+                        summary_kind: if is_video {
+                            "text-video-topics-v1"
+                        } else {
+                            "text"
+                        },
                         model: &text_provider.model,
                         api_style: text_provider.api_style.as_str(),
                         text: &resp.text,
@@ -244,6 +259,12 @@ pub async fn summarize_item(
                 .await?;
                 return Ok(SummaryResult {
                     summary: resp.text,
+                    summary_kind: if is_video {
+                        "text-video-topics-v1"
+                    } else {
+                        "text"
+                    }
+                    .into(),
                     model: text_provider.model.clone(),
                     cached: false,
                 });
@@ -259,49 +280,17 @@ pub async fn summarize_item(
 }
 
 /// Prompt for the video-URL path (§6a): Gemini watches the attached video itself and produces a
-/// comprehensive four-section brief (detailed breakdown, takeaways, answered questions, and a
-/// watch-it pitch) so the reader can decide whether the video is worth their time. One text part
-/// - the native call has no system turn.
+/// concise topic list. One text part - the native call has no system turn.
 fn build_video_url_prompt(item: &ItemRow) -> String {
     format!(
-        "Act as an expert content analyst and researcher. The reader is deciding whether to \
-         watch the attached YouTube video and needs a detailed breakdown to see if it's worth \
-         their time. Watch the video and produce a comprehensive brief in plain text with these \
-         four sections:\n\
-         \n\
-         1. Detailed chronological breakdown - a structured, step-by-step summary of what is \
-         actually said, broken down by major topics or chapters, detailing the main arguments, \
-         concepts, or stories the speaker shares in each section. Do not just list topics; \
-         explain what the speaker says about them.\n\
-         \n\
-         2. Key takeaways & core insights - the top 3–5 most valuable, actionable, or profound \
-         lessons a viewer should walk away with, each as a '- ' bullet.\n\
-         \n\
-         3. Questions this video answers - 5–7 specific, practical questions a viewer will get \
-         answered by watching (e.g. \"How do I fix X error?\" or \"Why does Y happen?\"), each \
-         as a '- ' bullet.\n\
-         \n\
-         4. The pitch: why watch it - a compelling argument for watching the video instead of \
-         just reading this brief. Highlight unique elements: the speaker's energy or passion, \
-         visual demonstrations, data charts, or code walkthroughs that are crucial to see, and \
-         who the ideal audience is.\n\
-         \n\
-         Do not invent facts not in the video. Output the brief with no preamble, greeting, or \
-         framing sentence (never anything like \"Here is a summary of…\") - the very first line \
-         must be the section 1 heading.\n\nTitle: {}\nSource: {}",
+        "Watch the attached YouTube video and output plain Markdown only: 3-6 bullets in exactly \
+         '- **Topic:** explanation' form. Cover distinct aspects discussed in the video and explain \
+         what the video says about each. Do not use timestamps, chronology, chapters, questions, \
+         takeaways, a conclusion, audience targeting, or a watch recommendation. Do not include a \
+         prelude, heading, or closing prose. Do not invent facts not in the video.\n\nTitle: {}\nSource: {}",
         item.title.as_deref().unwrap_or("(untitled)"),
         item.feed_title
     )
-}
-
-/// Output-token floor for the video-URL path. Gemini's current flash models think by default and
-/// thinking tokens count against `maxOutputTokens`, so the global text-summary default (1024)
-/// leaves almost nothing for the visible brief - it came back truncated mid-sentence. This is
-/// enough for the reasoning plus the four-section brief; an admin setting above it is respected.
-const VIDEO_MIN_MAX_TOKENS: u32 = 4096;
-
-fn video_max_tokens(configured: u32) -> u32 {
-    configured.max(VIDEO_MIN_MAX_TOKENS)
 }
 
 /// Build (system prompt, source text, was-truncated). Reading vs video/description-based (§6a).
@@ -311,20 +300,23 @@ fn build_prompt(item: &ItemRow, is_video: bool) -> (String, Option<String>, bool
         let (raw, system) = if has_captions {
             (
                 item.transcript_text.clone(),
-                "You turn video transcripts into a readable article so the reader can read instead of \
-                 watch. Output plain text with three parts: a 1–2 sentence intro; then 4–6 key-point \
-                 bullets each starting with '- '; then a final line starting 'Takeaways: ' with the \
-                 main conclusions. Aim for a 1–3 minute read. Do not invent facts not in the transcript."
+                "Turn this video's captions into plain Markdown only: 3-6 bullets in exactly '- **Topic:** \
+                 explanation' form. Cover distinct aspects discussed in the video and explain what the \
+                 video says about each. Do not use timestamps, chronology, chapters, questions, takeaways, \
+                 a conclusion, audience targeting, or a watch recommendation. Do not include a prelude, \
+                 heading, or closing prose. Do not invent facts not in the captions."
                     .to_string(),
             )
         } else {
             // No captions → summarize the description, labelled (prompt.md §6a).
             (
                 text_of(item),
-                "No captions are available for this video, so you are given only its description. \
-                 Summarize what the video is likely about BASED ON THE DESCRIPTION ONLY. Begin with \
-                 'Description-based summary (no transcript available):' then 2–4 '- ' bullets. Do not \
-                 fabricate details that aren't in the description."
+                "No fetched captions are available for this video, so you are given only its description. \
+                  The first line must be exactly 'Description-only topics (no captions available):'. Then \
+                  output 2-4 bullets in exactly '- **Topic:** explanation' form. Do not claim any video \
+                  details beyond the description. Do not use timestamps, chronology, chapters, questions, \
+                  takeaways, a conclusion, audience targeting, or a watch recommendation. Do not include a \
+                  prelude or closing prose."
                     .to_string(),
             )
         };
@@ -372,7 +364,8 @@ async fn cached(
 ) -> Result<Option<String>, sqlx::Error> {
     Ok(sqlx::query(
         "SELECT summary_text FROM item_summaries
-             WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?",
+              WHERE item_id = ? AND provider_id = ? AND model = ? AND summary_kind = ?
+                AND TRIM(summary_text) <> ''",
     )
     .bind(item_id)
     .bind(provider_id)
@@ -477,28 +470,22 @@ mod tests {
     }
 
     #[test]
-    fn video_url_prompt_asks_for_the_four_section_brief() {
+    fn video_url_prompt_requires_topic_bullets_without_legacy_sections() {
         let it = item("youtube", "none", None, None);
         let p = build_video_url_prompt(&it);
-        for section in [
-            "chronological breakdown",
-            "Key takeaways",
-            "Questions this video answers",
-            "why watch it",
+        for requirement in [
+            "3-6 bullets",
+            "- **Topic:** explanation",
+            "timestamps, chronology, chapters, questions, takeaways",
+            "conclusion, audience targeting, or a watch recommendation",
         ] {
-            assert!(p.contains(section), "missing section: {section}");
+            assert!(
+                p.contains(requirement),
+                "missing requirement: {requirement}"
+            );
         }
         assert!(p.contains("Title: T"));
-        // No conversational preamble ("Here is a summary of…") - the brief must start at section 1.
-        assert!(p.contains("no preamble"));
-    }
-
-    #[test]
-    fn video_output_budget_never_drops_below_the_brief_floor() {
-        // Thinking models spend maxOutputTokens on reasoning first; the comprehensive brief
-        // needs headroom beyond the global text-summary default (1024).
-        assert_eq!(video_max_tokens(1024), 4096);
-        assert_eq!(video_max_tokens(8192), 8192);
+        assert!(p.contains("prelude, heading, or closing prose"));
     }
 
     #[test]
@@ -513,7 +500,8 @@ mod tests {
     fn video_with_captions_uses_transcript() {
         let it = item("youtube", "fetched", Some("the transcript"), Some("desc"));
         let (system, source, _) = build_prompt(&it, true);
-        assert!(system.contains("video transcripts"));
+        assert!(system.contains("- **Topic:**"));
+        assert!(system.contains("timestamps, chronology, chapters"));
         assert_eq!(
             source.as_deref(),
             Some("the transcript"),
@@ -526,9 +514,11 @@ mod tests {
         let it = item("youtube", "unavailable", None, Some("just the description"));
         let (system, source, _) = build_prompt(&it, true);
         assert!(
-            system.contains("No captions are available"),
-            "description-based, labelled (§6a)"
+            system.contains("Description-only topics (no captions available):"),
+            "preserves the visible description-only label"
         );
+        assert!(system.contains("timestamps, chronology, chapters, questions"));
+        assert!(system.contains("watch recommendation"));
         assert_eq!(source.as_deref(), Some("just the description"));
     }
 
@@ -636,21 +626,37 @@ mod tests {
     async fn video_provider_summarizes_by_url_without_touching_transcripts() {
         let pool = test_pool().await;
         // Providers store the OpenAI-compatible base (`…/openai`); the native video call uses
-        // Gemini's generateContent endpoint and its documented file_data input shape.
+        // Gemini's Interactions endpoint and documented URL-video input shape.
         let mock = spawn_mock(axum::Router::new().route(
-            "/models/gemini-vid:generateContent",
-            axum::routing::post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
-                assert_eq!(body["contents"][0]["parts"][0]["file_data"]["file_uri"], "https://www.youtube.com/watch?v=abc123xyz00");
-                assert!(body["contents"][0]["parts"][1]["text"].is_string());
-                axum::Json(serde_json::json!({
-                    "candidates": [{ "content": { "parts": [{ "text": "Video summary from Gemini." }] } }],
-                    "usageMetadata": { "totalTokenCount": 1000 }
-                }))
-            }),
+            "/interactions",
+            axum::routing::post(
+                |headers: axum::http::HeaderMap,
+                 axum::Json(body): axum::Json<serde_json::Value>| async move {
+                    assert_eq!(headers["x-goog-api-key"], "k");
+                    assert_eq!(body["model"], "gemini-vid");
+                    assert!(body["input"][0]["text"].is_string());
+                    assert_eq!(body["input"][0]["type"], "text");
+                    assert_eq!(
+                        body["input"][1],
+                        serde_json::json!({
+                            "type": "video",
+                            "uri": "https://www.youtube.com/watch?v=abc123xyz00"
+                        })
+                    );
+                    axum::Json(serde_json::json!({
+                        "steps": [{
+                            "type": "model_output",
+                            "content": [{ "type": "text", "text": "Video summary from Gemini." }]
+                        }],
+                        "usage": { "total_tokens": 1000 }
+                    }))
+                },
+            ),
         ))
         .await;
         // Active provider is unreachable: success proves the video path was used.
-        make_provider(&pool, "groq", "http://127.0.0.1:9", "text-model", true).await;
+        let text_provider =
+            make_provider(&pool, "groq", "http://127.0.0.1:9", "text-model", true).await;
         let vp = make_provider(
             &pool,
             "gemini",
@@ -661,6 +667,23 @@ mod tests {
         .await;
         set_video_provider(&pool, vp).await;
         let item_id = make_video_item(&pool, "none", None).await;
+        // Both historical YouTube kinds are deliberately cache misses.
+        for (provider_id, summary_kind, model) in [
+            (vp, "video", "gemini-vid"),
+            (text_provider, "text", "text-model"),
+        ] {
+            sqlx::query(
+                "INSERT INTO item_summaries (item_id, provider_id, summary_kind, model, api_style, summary_text)
+                 VALUES (?, ?, ?, ?, 'openai', 'legacy')",
+            )
+            .bind(item_id)
+            .bind(provider_id)
+            .bind(summary_kind)
+            .bind(model)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
 
         let http = Client::new();
         let res = summarize_item(&pool, &http, &ENC_KEY, item_id, false)
@@ -668,8 +691,42 @@ mod tests {
             .map_err(|_| "summarize failed")
             .unwrap();
         assert_eq!(res.summary, "Video summary from Gemini.");
+        assert_eq!(res.summary_kind, "video-topics-v1");
         assert_eq!(res.model, "gemini-vid");
         assert!(!res.cached);
+
+        let kind: String = sqlx::query(
+            "SELECT summary_kind FROM item_summaries WHERE item_id = ? AND provider_id = ?",
+        )
+        .bind(item_id)
+        .bind(vp)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("summary_kind");
+        assert_eq!(
+            kind, "video",
+            "legacy row remains alongside the v1 cache row"
+        );
+
+        // Force regenerates the selected v1 row without overwriting the legacy row.
+        let forced = summarize_item(&pool, &http, &ENC_KEY, item_id, true)
+            .await
+            .map_err(|_| "forced summarize failed")
+            .unwrap();
+        assert!(!forced.cached);
+        let kinds: Vec<String> = sqlx::query(
+            "SELECT summary_kind FROM item_summaries WHERE item_id = ? AND provider_id = ? ORDER BY summary_kind",
+        )
+        .bind(item_id)
+        .bind(vp)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.get("summary_kind"))
+        .collect();
+        assert_eq!(kinds, ["video", "video-topics-v1"]);
 
         // The transcript was never lazily fetched (no youtube.com scraping on this path).
         let row =
@@ -688,6 +745,7 @@ mod tests {
             .map_err(|_| "summarize failed")
             .unwrap();
         assert!(res2.cached);
+        assert_eq!(res2.summary_kind, "video-topics-v1");
         assert_eq!(res2.model, "gemini-vid");
     }
 
@@ -723,6 +781,7 @@ mod tests {
             .map_err(|_| "summarize failed")
             .unwrap();
         assert_eq!(res.summary, "Fallback summary");
+        assert_eq!(res.summary_kind, "text-video-topics-v1");
         assert_eq!(res.model, "text-model");
     }
 
@@ -786,5 +845,25 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        store_summary(
+            &pool,
+            item_id,
+            NewSummary {
+                provider_id: 12,
+                summary_kind: "text-video-topics-v1",
+                model: "same-model",
+                api_style: "openai",
+                text: "   ",
+                is_video: true,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            cached(&pool, item_id, 12, "same-model", "text-video-topics-v1")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }
