@@ -44,6 +44,18 @@ pub async fn insert_items(
     items: &[ParsedItem],
     max_age_days: i64,
 ) -> Result<usize> {
+    insert_items_with_auto_summary(pool, feed_id, items, max_age_days, false).await
+}
+
+/// Insert new items and mark them for one automatic summary attempt when requested. The marker is
+/// applied only in the insert branch; previously stored items never become pending retroactively.
+pub async fn insert_items_with_auto_summary(
+    pool: &SqlitePool,
+    feed_id: i64,
+    items: &[ParsedItem],
+    max_age_days: i64,
+    auto_summary_pending: bool,
+) -> Result<usize> {
     let mut tx = pool.begin().await?;
     let mut inserted = 0usize;
     let cutoff = (max_age_days > 0).then(|| Utc::now() - chrono::Duration::days(max_age_days));
@@ -85,8 +97,9 @@ pub async fn insert_items(
                     "INSERT INTO items
                         (feed_id, guid, url, title, author, content_html, content_text,
                          transcript_status, image_url, duration_secs, reading_time_secs,
-                         published_at, score, comments_count, upvote_ratio, dedup_hash)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 'none', ?, ?, ?, ?, ?, ?, ?, ?)",
+                          published_at, score, comments_count, upvote_ratio, dedup_hash,
+                          auto_summary_pending)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 'none', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(feed_id)
                 .bind(&item.guid)
@@ -103,6 +116,7 @@ pub async fn insert_items(
                 .bind(item.comments_count)
                 .bind(item.upvote_ratio)
                 .bind(&item.dedup_hash)
+                .bind(auto_summary_pending as i64)
                 .execute(&mut *tx)
                 .await?;
                 inserted += 1;
@@ -295,5 +309,34 @@ mod tests {
             Some("updated body"),
             "content still synced despite the cutoff"
         );
+    }
+
+    #[tokio::test]
+    async fn auto_summary_marker_is_set_only_on_new_items() {
+        let pool = test_pool().await;
+        let feed_id = make_feed(&pool).await;
+        let published_at = Utc::now();
+
+        insert_items_with_auto_summary(&pool, feed_id, &[item("guid:new", published_at)], 0, true)
+            .await
+            .unwrap();
+        insert_items_with_auto_summary(&pool, feed_id, &[item("guid:old", published_at)], 0, false)
+            .await
+            .unwrap();
+        insert_items_with_auto_summary(&pool, feed_id, &[item("guid:old", published_at)], 0, true)
+            .await
+            .unwrap();
+
+        let markers: Vec<i64> = sqlx::query(
+            "SELECT auto_summary_pending FROM items WHERE feed_id = ? ORDER BY dedup_hash",
+        )
+        .bind(feed_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.get("auto_summary_pending"))
+        .collect();
+        assert_eq!(markers, [1, 0]);
     }
 }

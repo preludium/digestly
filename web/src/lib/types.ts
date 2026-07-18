@@ -207,6 +207,7 @@ export interface AiSettings {
     text_provider_mode: TextProviderMode;
     text_provider_ids: number[];
     video_provider_id: number | null;
+    youtube_auto_summary_enabled: boolean;
 }
 
 export type AiSettingsInput = Partial<

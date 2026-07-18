@@ -31,6 +31,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import {
     useActivateProvider,
     useAiProviders,
@@ -90,6 +91,8 @@ export function AiSettings() {
             </div>
 
             {providers.data && <RoutingSettings providers={providers.data} />}
+
+            <YouTubeSummarySettings />
 
             <GlobalParams />
 
@@ -153,7 +156,7 @@ function VideoProviderPicker({
         <div className="space-y-3.5">
             <div className="border-b border-border pb-2">
                 <h3 className="text-[13px] font-bold tracking-wide">
-                    YouTube video summaries
+                    YouTube video provider
                 </h3>
             </div>
             <p className="text-[13px] text-muted-foreground">
@@ -198,6 +201,51 @@ function VideoProviderPicker({
                     </Select>
                 </div>
             )}
+        </div>
+    );
+}
+
+function YouTubeSummarySettings() {
+    const settings = useAiSettings();
+    const update = useUpdateAiSettings();
+
+    if (settings.isLoading) return null;
+    if (settings.isError || !settings.data)
+        return <ErrorBanner error={settings.error} />;
+
+    return (
+        <div className="space-y-3.5">
+            <div className="border-b border-border pb-2">
+                <h3 className="text-[13px] font-bold tracking-wide">
+                    YouTube video summaries
+                </h3>
+            </div>
+            <div
+                className={cn(
+                    SETTINGS_TILE_CLASS,
+                    "flex cursor-pointer items-center justify-between gap-4",
+                )}
+            >
+                <span className="text-[13px] text-muted-foreground">
+                    Summarize newly ingested videos when possible. This is best
+                    effort and does not affect existing videos.
+                </span>
+                <Switch
+                    aria-label="YouTube video summaries"
+                    checked={settings.data.youtube_auto_summary_enabled}
+                    disabled={update.isPending}
+                    onCheckedChange={(youtube_auto_summary_enabled) =>
+                        update.mutate(
+                            { youtube_auto_summary_enabled },
+                            {
+                                onError: (e) =>
+                                    toast.error(apiError(e, "Could not save")),
+                            },
+                        )
+                    }
+                    className="shrink-0"
+                />
+            </div>
         </div>
     );
 }

@@ -230,7 +230,15 @@ impl Scheduler {
                 if feed_wants_fulltext(&self.pool, feed.id).await? {
                     enrich_fulltext(&self.client, cfg, &mut parsed.items).await;
                 }
-                let n = store_parsed(&self.pool, feed.id, &parsed, cfg).await?;
+                let auto_summary_pending = feed.kind == FeedKind::Youtube
+                    && crate::settings::get_bool(
+                        &self.pool,
+                        "ai.youtube_auto_summary_enabled",
+                        false,
+                    )
+                    .await;
+                let n =
+                    store_parsed(&self.pool, feed.id, &parsed, cfg, auto_summary_pending).await?;
                 store::record_success(&self.pool, feed.id, &fetched, feed.interval).await?;
                 info!(feed_id = feed.id, new_items = n, "polled feed");
                 if feed.kind == FeedKind::Youtube && n > 0 {
@@ -270,8 +278,14 @@ impl Scheduler {
             match reddit::fetch_authenticated(&self.client, &sub, &token).await {
                 Ok(body) => {
                     let items = reddit::parse_listing(&body, cfg, Utc::now())?;
-                    let n = store_parsed(&self.pool, feed.id, &subreddit_feed(&sub, items), cfg)
-                        .await?;
+                    let n = store_parsed(
+                        &self.pool,
+                        feed.id,
+                        &subreddit_feed(&sub, items),
+                        cfg,
+                        false,
+                    )
+                    .await?;
                     let fetched = fetch::Fetched {
                         body: Vec::new(),
                         etag: None,
@@ -297,8 +311,14 @@ impl Scheduler {
         match fetch::get(&self.client, &json_url, &no_cond, cfg).await {
             Ok(FetchOutcome::Fetched(fetched)) => {
                 let items = reddit::parse_listing(&fetched.body, cfg, Utc::now())?;
-                let n =
-                    store_parsed(&self.pool, feed.id, &subreddit_feed(&sub, items), cfg).await?;
+                let n = store_parsed(
+                    &self.pool,
+                    feed.id,
+                    &subreddit_feed(&sub, items),
+                    cfg,
+                    false,
+                )
+                .await?;
                 store::record_success(&self.pool, feed.id, &fetched, feed.interval).await?;
                 info!(feed_id = feed.id, new_items = n, "polled reddit (json)");
                 return Ok(PollOutcome::stored(n));
@@ -320,7 +340,7 @@ impl Scheduler {
             Ok(FetchOutcome::Fetched(fetched)) => {
                 let parsed =
                     parse::parse_feed(&fetched.body, &rss_url, FeedKind::Reddit, cfg, Utc::now())?;
-                let n = store_parsed(&self.pool, feed.id, &parsed, cfg).await?;
+                let n = store_parsed(&self.pool, feed.id, &parsed, cfg, false).await?;
                 store::record_success(&self.pool, feed.id, &fetched, feed.interval).await?;
                 info!(
                     feed_id = feed.id,
@@ -366,9 +386,17 @@ async fn store_parsed(
     feed_id: i64,
     parsed: &ParsedFeed,
     cfg: &IngestSettings,
+    auto_summary_pending: bool,
 ) -> anyhow::Result<usize> {
     store::apply_feed_metadata(pool, feed_id, parsed).await?;
-    store::insert_items(pool, feed_id, &parsed.items, cfg.max_item_age_days).await
+    store::insert_items_with_auto_summary(
+        pool,
+        feed_id,
+        &parsed.items,
+        cfg.max_item_age_days,
+        auto_summary_pending,
+    )
+    .await
 }
 
 fn log_failure(feed_id: i64, e: &FetchError) {

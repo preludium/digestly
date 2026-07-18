@@ -81,4 +81,10 @@ mod tests {
         assert!(!get_bool(&pool, "bool.other", true).await);
         assert!(get_bool(&pool, "bool.missing", true).await);
     }
+
+    #[tokio::test]
+    async fn youtube_auto_summary_defaults_to_false() {
+        let pool = test_pool().await;
+        assert!(!get_bool(&pool, "ai.youtube_auto_summary_enabled", true).await);
+    }
 }

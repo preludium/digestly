@@ -32,6 +32,7 @@ struct NewSummary<'a> {
 }
 
 /// Why a summarize call couldn't produce a summary - each maps to a clear, key-free API error.
+#[derive(Debug)]
 pub enum SummarizeError {
     /// No text provider configured (admin must add one).
     NotConfigured,
