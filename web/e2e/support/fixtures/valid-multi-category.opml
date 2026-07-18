@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>E2E Fixture OPML - multi category</title>
+  </head>
+  <body>
+    <outline text="Software Engineering" title="Software Engineering">
+      <outline type="rss" text="E2E Fixture RSS Feed" title="E2E Fixture RSS Feed" xmlUrl="http://localhost:8098/rss.xml"/>
+      <outline type="atom" text="E2E Fixture Atom Feed" title="E2E Fixture Atom Feed" xmlUrl="http://localhost:8098/atom.xml"/>
+    </outline>
+    <outline text="AI" title="AI">
+      <outline type="json" text="E2E Fixture JSON Feed" title="E2E Fixture JSON Feed" xmlUrl="http://localhost:8098/feed.json"/>
+    </outline>
+  </body>
+</opml>
