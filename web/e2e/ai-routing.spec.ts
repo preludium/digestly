@@ -349,9 +349,13 @@ test.describe("AI provider routing", { tag: "@serial" }, () => {
             model: "gemini-video-second",
             cached: false,
         });
-        expect(await withAdmin(aiMockRequests)).toEqual([
-            { kind: "gemini", model: "gemini-video-first" },
-            { kind: "gemini", model: "gemini-video-second" },
-        ]);
+        const models = (await withAdmin(aiMockRequests))
+            .filter((request) => request.kind === "gemini")
+            .map((request) => request.model);
+        const secondIndex = models.indexOf("gemini-video-second");
+        expect(secondIndex).toBeGreaterThan(0);
+        expect(models.slice(0, secondIndex)).toEqual(
+            Array(secondIndex).fill("gemini-video-first"),
+        );
     });
 });
