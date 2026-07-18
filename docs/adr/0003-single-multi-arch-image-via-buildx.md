@@ -68,5 +68,6 @@ git tag v1.2.3
 git push origin v1.2.3
 ```
 
-Emulated ARM64 Rust compilation is slow in CI; a native ARM runner or cargo-level
-cross-compilation is faster if build time becomes a problem.
+CI builds each architecture on a native runner (`ubuntu-latest` for AMD64 and
+`ubuntu-24.04-arm` for ARM64), then assembles their pushed digests into one manifest. Buildx's
+GitHub Actions cache is partitioned by architecture.
