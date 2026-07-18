@@ -4,13 +4,13 @@ import {
     aiMockRequests,
     aiSettings,
     configureAiMock,
-    createFixtureAiProvider,
     deleteAiProvider,
     enablePrivateUrls,
     loginAs,
     registerUser,
     resetAiMock,
     restoreIngestionSettings,
+    seedAiProvider,
     seedSummaryFeed,
     seedYoutubeFeed,
     updateAiSettings,
@@ -46,12 +46,8 @@ test.describe("AI provider routing", () => {
         createdProviderIds = [];
     });
 
-    async function createProvider(
-        input: Parameters<typeof createFixtureAiProvider>[1],
-    ) {
-        const id = await withAdmin((admin) =>
-            createFixtureAiProvider(admin, input),
-        );
+    async function createProvider(input: Parameters<typeof seedAiProvider>[1]) {
+        const id = await withAdmin((admin) => seedAiProvider(admin, input));
         createdProviderIds.push(id);
         return id;
     }

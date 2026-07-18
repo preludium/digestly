@@ -16,7 +16,7 @@ export function HealthRow({
     const badge = STATUS_BADGE[row.status];
 
     return (
-        <TableRow>
+        <TableRow data-testid="health-row-table" data-feed-id={row.id}>
             <TableCell>
                 <div className="flex items-center gap-2">
                     <FeedIcon row={row} />

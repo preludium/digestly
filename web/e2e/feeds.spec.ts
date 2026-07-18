@@ -3,7 +3,12 @@
 // Uses a unique user per run so tests are order-independent and avoid the 60 s per-user
 // ingest cooldown (uniqueUsername in registerUser).
 import { expect, test } from "@playwright/test";
-import { APP_URL, FIXTURE, registerUser } from "./support/api";
+import {
+    expectToast,
+    FIXTURE,
+    registerUser,
+    seedCategory,
+} from "./support/api";
 
 test("add, ingest, edit category, and unsubscribe a feed", async ({ page }) => {
     // Register a fresh user; page.request shares the browser-context cookie jar with page,
@@ -12,9 +17,7 @@ test("add, ingest, edit category, and unsubscribe a feed", async ({ page }) => {
 
     // Create a second category so the edit-category step has something to change to.
     // Fresh users only get one built-in category: "Other" (backend/src/seed.rs DEFAULT_CATEGORIES).
-    await page.request.post(`${APP_URL}/api/categories`, {
-        data: { name: "Tech News" },
-    });
+    await seedCategory(page.request, "Tech News");
 
     // ── Add feed via "Use this URL as a feed directly" fallback ──────────────────────────────
     await page.goto("/manage");
@@ -44,7 +47,7 @@ test("add, ingest, edit category, and unsubscribe a feed", async ({ page }) => {
     await page.getByRole("option").first().click();
 
     await addDialog.getByRole("button", { name: "Add feed" }).click();
-    await expect(page.getByText("Feed added")).toBeVisible();
+    await expectToast(page, "Feed added");
 
     // ── Click "Ingest now" and assert the fixture item appears ───────────────────────────────
     await page.goto("/");
@@ -75,7 +78,7 @@ test("add, ingest, edit category, and unsubscribe a feed", async ({ page }) => {
     await page.getByRole("option", { name: "Tech News" }).click();
 
     await editDialog.getByRole("button", { name: "Save" }).click();
-    await expect(page.getByText("Feed updated")).toBeVisible();
+    await expectToast(page, "Feed updated");
 
     // ── Unsubscribe ─────────────────────────────────────────────────────────────────────────
     // Edit dialog closes; all CategorySection Collapsibles start open (useState(true) in
@@ -88,7 +91,7 @@ test("add, ingest, edit category, and unsubscribe a feed", async ({ page }) => {
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole("button", { name: "Unsubscribe" }).click();
 
-    await expect(page.getByText("Unsubscribed")).toBeVisible();
+    await expectToast(page, "Unsubscribed");
     // useUnsubscribe invalidates the feeds query; after refetch the <li> is gone.
     await expect(feedRow).toHaveCount(0);
 });

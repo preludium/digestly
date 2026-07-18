@@ -20,6 +20,28 @@ enforced; caught in review.
 
 **No lint suppressions.** Address the lint; don't silence it. No automated check enforces this.
 
+**`data-testid` only where the DOM is genuinely ambiguous or the copy is volatile.** Prefer
+`getByRole`/`getByLabel`/`getByText` - they double as an accessibility check and don't churn when
+markup is refactored. Reach for `data-testid` (plus any `data-*` id the element needs, e.g.
+`data-item-id`, `data-feed-id`) only when:
+
+- the same content renders more than once in the DOM at once and only CSS visibility tells the
+  copies apart (e.g. `Health.tsx`'s mobile `<HealthCard>` list vs. desktop `<HealthRow>` table -
+  both mounted regardless of viewport, so a bare `getByText`/`getByRole` throws a Playwright
+  strict-mode violation), or
+- the only signal an action succeeded is user-facing copy that's expected to change (e.g. `sonner`
+  toast text - use `expectToast(page, text)` from `web/e2e/support/api.ts`, which scopes the match
+  to `[data-sonner-toast]`, so a copy tweak is a one-line fix there instead of touching every spec
+  that asserts it), or
+- an element's accessible name is itself the thing under test or is otherwise unstable (e.g. a
+  `FilterBar` topic chip's name is `"<category name> <count>"`, so a spec that wants to click a
+  specific category should filter on `data-category-id`, not parse the label).
+
+Adding a `data-testid` must not change rendered output, styling, or behavior - it's an inert
+attribute. Don't add one where a role/label selector is already unambiguous; three specs quietly
+duplicating the same `data-testid` convention is a smaller cost than a spec suite that can't tell
+role/label selectors from load-bearing ones.
+
 ## What CI enforces
 
 Source of truth: `.github/workflows/ci.yml`.

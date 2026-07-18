@@ -155,6 +155,7 @@ function TopicChips({
                 <Chip
                     active={filters.cat === "all"}
                     onClick={() => setFacet("cat", "all")}
+                    categoryId="all"
                 >
                     All topics{" "}
                     <Count
@@ -180,6 +181,7 @@ function TopicChips({
                         onClick={() =>
                             setFacet("cat", filters.cat === c.id ? "all" : c.id)
                         }
+                        categoryId={c.id}
                     >
                         {c.name}{" "}
                         <Count
@@ -207,6 +209,8 @@ function RefinePill({
 
     return (
         <div
+            data-testid="refine-pill"
+            data-variant={mobile ? "mobile" : "desktop"}
             className={cn(
                 "flex w-fit items-center divide-x divide-border rounded-lg border border-border bg-card",
                 mobile && "w-full flex-col items-stretch divide-x-0 divide-y",
@@ -304,7 +308,10 @@ function SortPill({
 }: Pick<FilterBarProps, "filters" | "setFacet">) {
     return (
         // biome-ignore lint/a11y/noLabelWithoutControl: existing baseline
-        <label className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-muted pl-3 pr-1">
+        <label
+            data-testid="sort-pill"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-muted pl-3 pr-1"
+        >
             <ArrowDownWideNarrow className="size-3.5 shrink-0 text-muted-foreground" />
             <Select
                 value={filters.sort}
@@ -329,15 +336,20 @@ function Chip({
     active,
     onClick,
     children,
+    categoryId,
 }: {
     active: boolean;
     onClick: () => void;
     children: React.ReactNode;
+    /** "all" for the "All topics" chip, otherwise the category id it filters to. */
+    categoryId: number | "all";
 }) {
     return (
         <button
             type="button"
             onClick={onClick}
+            data-testid="topic-chip"
+            data-category-id={categoryId}
             className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors hover:cursor-pointer",
                 active

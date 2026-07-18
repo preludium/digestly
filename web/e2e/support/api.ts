@@ -6,7 +6,19 @@
 // the spec's own user via `page.request` leaves `page.goto()` already authenticated - no
 // storageState needed. A second identity (e.g. admin) must use `request.newContext({ baseURL })`
 // so its `hf_session` never clobbers the page user's.
-import { type APIRequestContext, request } from "@playwright/test";
+import {
+    type APIRequestContext,
+    expect,
+    type Page,
+    request,
+} from "@playwright/test";
+import type {
+    AdminSettings,
+    Category,
+    DigestListItem,
+    FeedKind,
+    PutNotifications,
+} from "../../src/lib/types";
 import {
     RSS_FEED_TITLE,
     RSS_ITEM_TITLE,
@@ -27,11 +39,15 @@ export const FIXTURE = {
     json: "http://localhost:8098/feed.json",
     summary: "http://localhost:8098/summary.json",
     youtube: "http://localhost:8098/youtube.xml",
+    /** Always returns 500 - use with seedFailingFeed to put a feed into "failing" health status. */
+    failing500: "http://localhost:8098/fail/500",
     rssFeedTitle: RSS_FEED_TITLE,
     rssItemTitle: RSS_ITEM_TITLE,
     summaryItemTitle: SUMMARY_ITEM_TITLE,
     aiBaseUrl: "http://localhost:8098/ai-mock/openai",
     aiAnthropicBaseUrl: "http://localhost:8098/ai-mock/anthropic",
+    /** The fake ntfy server: POST {ntfyBaseUrl}/{topic} is what notify::send hits (server/notify). */
+    ntfyBaseUrl: "http://localhost:8098/ntfy",
 };
 
 export type AiMockResponse = {
@@ -72,17 +88,43 @@ async function ok(response: {
     }
 }
 
+/**
+ * A separate, logged-in-as-admin request context. Formalizes the cookie-jar contract documented
+ * at the top of this file: the caller owns the returned context and MUST `dispose()` it, so its
+ * `hf_session` never clobbers a spec's own logged-in user. Prefer `withAdmin` for a one-off
+ * action - reach for `asAdmin` directly only when the context needs to outlive a single call.
+ */
+export async function asAdmin(): Promise<APIRequestContext> {
+    const admin = await request.newContext({ baseURL: APP_URL });
+    try {
+        await loginAs(admin, ADMIN.username, ADMIN.password);
+    } catch (e) {
+        await admin.dispose();
+        throw e;
+    }
+    return admin;
+}
+
 /** A separate admin session keeps the browser user's session untouched during e2e setup. */
 export async function withAdmin<T>(
     action: (admin: APIRequestContext) => Promise<T>,
 ): Promise<T> {
-    const admin = await request.newContext({ baseURL: APP_URL });
+    const admin = await asAdmin();
     try {
-        await loginAs(admin, ADMIN.username, ADMIN.password);
         return await action(admin);
     } finally {
         await admin.dispose();
     }
+}
+
+/** Asserts a sonner toast bearing this text is visible. Toasts render inside sonner's own
+ *  `[data-sonner-toast]` wrapper (components/ui/sonner.tsx, vendored - not edited for this),
+ *  which scopes the assertion so it can't collide with the same text appearing elsewhere on the
+ *  page. Centralizes toast-copy assertions so a copy tweak is a one-line fix here, not ~40. */
+export async function expectToast(page: Page, text: string): Promise<void> {
+    await expect(
+        page.locator("[data-sonner-toast]").filter({ hasText: text }),
+    ).toBeVisible();
 }
 
 /** Configure the fixture server's local OpenAI/Gemini responses and clear its request log. */
@@ -113,8 +155,8 @@ export async function aiMockRequests(
     ).requests;
 }
 
-/** Create an AI provider through the real admin endpoint, pointing it at the local fixture. */
-export async function createFixtureAiProvider(
+/** Create an AI provider through the real admin endpoint, pointing it at the F1 fake. */
+export async function seedAiProvider(
     request: APIRequestContext,
     input: AiProviderInput,
 ): Promise<number> {
@@ -271,11 +313,25 @@ export async function firstCategoryId(
     return categories[0].id;
 }
 
+/** POST /api/categories - a fresh category for the calling user, typed against Category so a
+ *  serde rename on the DTO fails this at compile time rather than at runtime. */
+export async function seedCategory(
+    request: APIRequestContext,
+    name: string,
+): Promise<number> {
+    const response = await request.post(`${APP_URL}/api/categories`, {
+        data: { name },
+    });
+    await ok(response);
+    const category: Category = await response.json();
+    return category.id;
+}
+
 /** POST /api/feeds - direct subscribe (category is mandatory server-side). */
 export async function subscribeFeed(
     request: APIRequestContext,
     feedUrl: string,
-    opts?: { kind?: string; categoryId?: number },
+    opts?: { kind?: FeedKind; categoryId?: number },
 ): Promise<number> {
     const categoryId = opts?.categoryId ?? (await firstCategoryId(request));
     const response = await request.post(`${APP_URL}/api/feeds`, {
@@ -288,6 +344,30 @@ export async function subscribeFeed(
     await ok(response);
     const feed: { id: number } = await response.json();
     return feed.id;
+}
+
+export type SeedFeedSpec = {
+    feedUrl: string;
+    kind?: FeedKind;
+    categoryId?: number;
+};
+
+/** Bulk-subscribe several feeds of (potentially) varied kinds in one call, returning their ids
+ *  in the same order. Does not ingest - pair with `ingestNow` when items are needed. */
+export async function seedFeeds(
+    request: APIRequestContext,
+    specs: SeedFeedSpec[],
+): Promise<number[]> {
+    const ids: number[] = [];
+    for (const spec of specs) {
+        ids.push(
+            await subscribeFeed(request, spec.feedUrl, {
+                kind: spec.kind,
+                categoryId: spec.categoryId,
+            }),
+        );
+    }
+    return ids;
 }
 
 /** POST /api/feeds/refresh-all, then poll GET /api/ingest/status until the run clears. */
@@ -414,6 +494,105 @@ export async function seedYoutubeFeed(
     return { feedId, itemId: item.id };
 }
 
+export type SeedItemState = {
+    itemId: number;
+    isRead?: boolean;
+    isStarred?: boolean;
+};
+
+/**
+ * POST /api/items/{id}/read and/or /star to set a known read/star state before a spec drives the
+ * UI. Only read/star are covered: a Reddit item's `score` cannot be produced through a
+ * fixture-reachable ingest path (backend/src/ingest/scheduler.rs::process_reddit always polls
+ * hardcoded reddit.com URLs - see KNOWN BACKEND LIMITATIONS in the epic briefing), so there is no
+ * seed path that lets a spec assert on a scored item's min_score filtering.
+ */
+export async function seedItems(
+    request: APIRequestContext,
+    states: SeedItemState[],
+): Promise<void> {
+    for (const state of states) {
+        if (state.isRead !== undefined) {
+            const response = await request.post(
+                `${APP_URL}/api/items/${state.itemId}/read`,
+                { data: { value: state.isRead } },
+            );
+            await ok(response);
+        }
+        if (state.isStarred !== undefined) {
+            const response = await request.post(
+                `${APP_URL}/api/items/${state.itemId}/star`,
+                { data: { value: state.isStarred } },
+            );
+            await ok(response);
+        }
+    }
+}
+
+/** PUT /api/notifications, pointing ntfy at the F1 fake so a spec can assert on
+ *  `ntfyReceipts()`. Returns the topic (generated unless one is passed) so the caller can
+ *  scope its assertions to receipts from this seed call. */
+export async function seedNtfy(
+    request: APIRequestContext,
+    opts?: {
+        topic?: string;
+        authToken?: string;
+        priority?: number;
+        notifyOnDigest?: boolean;
+        notifyOnFeedHealth?: boolean;
+    },
+): Promise<{ topic: string }> {
+    const topic = opts?.topic ?? uniqueUsername("e2e-ntfy");
+    const body: PutNotifications = {
+        ntfy_server_url: FIXTURE.ntfyBaseUrl,
+        ntfy_topic: topic,
+    };
+    if (opts?.priority !== undefined) body.ntfy_priority = opts.priority;
+    if (opts?.notifyOnDigest !== undefined)
+        body.notify_on_digest = opts.notifyOnDigest;
+    if (opts?.notifyOnFeedHealth !== undefined)
+        body.notify_on_feed_health = opts.notifyOnFeedHealth;
+    if (opts?.authToken !== undefined) body.auth_token = opts.authToken;
+
+    const response = await request.put(`${APP_URL}/api/notifications`, {
+        data: body,
+    });
+    await ok(response);
+    return { topic };
+}
+
+/** GET then PUT /api/admin/settings, merging `patch` over the current settings (the same
+ *  get-merge-put pattern `enablePrivateUrls` uses for the admin ingestion resource). Callers
+ *  use a context from `asAdmin`/`withAdmin` since this is an admin-only endpoint. */
+export async function seedAdminSetting(
+    admin: APIRequestContext,
+    patch: Partial<AdminSettings>,
+): Promise<AdminSettings> {
+    const current = await admin.get(`${APP_URL}/api/admin/settings`);
+    await ok(current);
+    const settings: AdminSettings = await current.json();
+    const next: AdminSettings = { ...settings, ...patch };
+    const response = await admin.put(`${APP_URL}/api/admin/settings`, {
+        data: next,
+    });
+    await ok(response);
+    return next;
+}
+
+/** Subscribe a feed that always 500s and ingest once - failure_count > 0 puts it straight into
+ *  "failing" health status (backend/src/routes/feeds.rs: status is "failing" whenever
+ *  failure_count > 0 and the feed isn't yet disabled), so a single ingest is enough. */
+export async function seedFailingFeed(
+    request: APIRequestContext,
+    opts?: { categoryId?: number },
+): Promise<{ feedId: number }> {
+    const feedId = await subscribeFeed(request, FIXTURE.failing500, {
+        categoryId: opts?.categoryId,
+    });
+    await ingestNow(request);
+    return { feedId };
+}
+
 /**
  * Runs the admin digest for all users. Uses a SEPARATE request context so the admin's
  * `hf_session` never clobbers the calling spec's own logged-in user (see cookie contract above).
@@ -436,4 +615,23 @@ export async function adminDigestRun(opts?: {
     } finally {
         await context.dispose();
     }
+}
+
+/** Seed a feed with items, run the admin digest, and return the caller's newest digest id - the
+ *  full precondition most digest specs need in one call. Typed against DigestListItem so a serde
+ *  rename on that DTO fails this at compile time. */
+export async function seedDigest(
+    request: APIRequestContext,
+    opts?: { lookbackDays?: number },
+): Promise<{ feedId: number; digestId: number }> {
+    const { feedId } = await seedFeedWithItems(request);
+    await adminDigestRun({ lookbackDays: opts?.lookbackDays });
+
+    const response = await request.get(`${APP_URL}/api/digest`);
+    await ok(response);
+    const digests: DigestListItem[] = await response.json();
+    if (digests.length === 0) {
+        throw new Error("expected at least one digest after adminDigestRun");
+    }
+    return { feedId, digestId: digests[0].id };
 }
