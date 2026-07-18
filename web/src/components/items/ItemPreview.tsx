@@ -17,6 +17,12 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
     useItem,
     useSummarize,
     useToggleRead,
@@ -34,8 +40,8 @@ import type { Item, ItemDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** The reading surface (§9.1a). Full-width overlay on mobile, right sheet ≥820px. Reading items
- *  render sanitized HTML; video items are shown AS TEXT (summary slot → transcript → watch link).
- *  Clicking through to the original marks the item read.
+ *  render sanitized HTML; video items are shown as text with a topic summary and optional
+ *  transcript. Clicking through to the original marks the item read.
  *
  *  Driven by an id, not an item: the id comes from the URL, so a deep-linked article opens before
  *  any card for it is in the cache. `seed` is the clicked card when there is one - it renders the
@@ -190,9 +196,14 @@ function PreviewBody({
                 </Badge>
             </div>
 
-            <h1 className="text-xl font-bold leading-tight">
-                {view.title ?? "Untitled"}
-            </h1>
+            <div className="flex items-start gap-2">
+                <h1 className="flex-1 text-xl font-bold leading-tight">
+                    {view.title ?? "Untitled"}
+                </h1>
+                {isVideo && (
+                    <OpenOriginalAction view={view} onOpen={onOpen} compact />
+                )}
+            </div>
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
@@ -233,10 +244,7 @@ function PreviewBody({
                     <Skeleton className="h-4 w-2/3" />
                 </div>
             ) : isVideo ? (
-                <>
-                    <VideoBody view={view} />
-                    <OpenOriginalAction view={view} onOpen={onOpen} />
-                </>
+                <VideoBody view={view} />
             ) : (
                 <ReadingBody view={view} />
             )}
@@ -247,11 +255,38 @@ function PreviewBody({
 function OpenOriginalAction({
     view,
     onOpen,
+    compact = false,
 }: {
     view: Item & Partial<ItemDetail>;
     onOpen: () => void;
+    compact?: boolean;
 }) {
     if (!view.url) return null;
+
+    if (compact) {
+        return (
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="outline" size="icon" asChild>
+                            <a
+                                href={externalHref(view.url, view.kind)}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label="Open original video"
+                                onClick={onOpen}
+                            >
+                                <ExternalLink className="size-4" />
+                            </a>
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" sideOffset={6}>
+                        Open original video
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+        );
+    }
 
     return (
         <div className="flex flex-wrap gap-2">
