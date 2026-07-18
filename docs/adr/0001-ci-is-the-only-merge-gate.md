@@ -2,7 +2,7 @@
 
 **Status: accepted.**
 
-The project runs three CI jobs on every PR and push to `main` (see `.github/workflows/ci.yml`):
+The project runs three CI jobs on every PR (see `.github/workflows/ci.yml`):
 `backend` (fmt, clippy, tests), `frontend` (biome, build, vitest), and `e2e` (Playwright against a
 release build). These are the only required pre-merge gates.
 
