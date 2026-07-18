@@ -101,17 +101,13 @@ test.describe("items", () => {
         test("label the source and keep captions collapsed", async ({
             page,
         }) => {
-            const items = await page.request.get(
-                `${APP_URL}/api/items?type=video`,
-            );
+            const items = await page.request.get("/api/items?type=video");
             const { id: itemId } = (
                 (await items.json()) as {
                     items: Array<{ id: number }>;
                 }
             ).items[0];
-            const detail = await page.request.get(
-                `${APP_URL}/api/items/${itemId}`,
-            );
+            const detail = await page.request.get(`/api/items/${itemId}`);
             const video = (await detail.json()) as Record<string, unknown>;
             const videoTitle = String(video.title);
             const topicSummary =
@@ -172,17 +168,13 @@ test.describe("items", () => {
         });
 
         test("labels description-only summaries", async ({ page }) => {
-            const items = await page.request.get(
-                `${APP_URL}/api/items?type=video`,
-            );
+            const items = await page.request.get("/api/items?type=video");
             const { id: itemId } = (
                 (await items.json()) as {
                     items: Array<{ id: number }>;
                 }
             ).items[0];
-            const detail = await page.request.get(
-                `${APP_URL}/api/items/${itemId}`,
-            );
+            const detail = await page.request.get(`/api/items/${itemId}`);
             const video = (await detail.json()) as Record<string, unknown>;
             const videoTitle = String(video.title);
 
