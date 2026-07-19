@@ -54,13 +54,13 @@ export function Health() {
                 <PageTitle>Feed health</PageTitle>
                 <div className="flex flex-wrap items-center gap-3.5">
                     <div className="relative">
-                        <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-[15px] -translate-y-1/2 text-muted-foreground" />
+                        <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.75 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             aria-label="Search feeds"
                             placeholder="Search feeds"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="h-[34px] w-[170px] pl-8 text-[13px]"
+                            className="h-8.5 w-42.5 pl-8 text-[13px]"
                         />
                     </div>
                     {/* biome-ignore lint/a11y/noLabelWithoutControl: existing baseline */}
@@ -74,7 +74,7 @@ export function Health() {
                                 setStatusFilter(v as "all" | FeedStatus)
                             }
                         >
-                            <SelectTrigger className="h-[34px] w-auto gap-1.5 text-[13px] font-semibold">
+                            <SelectTrigger className="h-8.5 w-auto gap-1.5 text-[13px] font-semibold">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
