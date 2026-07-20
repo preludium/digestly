@@ -4,12 +4,12 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorBanner } from "@/components/common/ErrorBanner";
-import { NameDialog } from "@/components/common/NameDialog";
 import {
     NumField,
     SETTINGS_TILE_CLASS,
 } from "@/components/common/SettingsTile";
 import { AddProviderModal } from "@/components/settings/AddProviderModal";
+import { EditProviderDialog } from "@/components/settings/EditProviderDialog";
 import { TextProviderRouting } from "@/components/settings/TextProviderRouting";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -157,24 +157,13 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
     const patch = usePatchProvider();
     const test = useTestProvider();
     const [confirmDelete, setConfirmDelete] = useState(false);
-    const [editName, setEditName] = useState(false);
-    const [editModel, setEditModel] = useState(false);
+    const [editOpen, setEditOpen] = useState(false);
 
-    const saveName = (name: string) => {
+    const saveProvider = (name: string, model: string) => {
         patch.mutate(
-            { id: provider.id, name },
+            { id: provider.id, name, model },
             {
-                onSuccess: () => toast("Name updated"),
-                onError: (e) => toast.error(apiError(e, "Could not save")),
-            },
-        );
-    };
-
-    const saveModel = (model: string) => {
-        patch.mutate(
-            { id: provider.id, model },
-            {
-                onSuccess: () => toast("Model updated"),
+                onSuccess: () => toast("Provider updated"),
                 onError: (e) => toast.error(apiError(e, "Could not save")),
             },
         );
@@ -253,18 +242,9 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                     <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Rename provider"
+                        aria-label="Edit provider"
                         disabled={patch.isPending}
-                        onClick={() => setEditName(true)}
-                    >
-                        <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Change model"
-                        disabled={patch.isPending}
-                        onClick={() => setEditModel(true)}
+                        onClick={() => setEditOpen(true)}
                     >
                         <Pencil className="size-4" />
                     </Button>
@@ -280,24 +260,12 @@ function ProviderRow({ provider }: { provider: AiProvider }) {
                 </div>
             </li>
 
-            <NameDialog
-                open={editName}
-                onOpenChange={setEditName}
-                title="Rename provider"
-                label="Provider name (account/project)"
-                initialValue={provider.name}
-                placeholder="My LLM"
-                onSubmit={saveName}
-            />
-
-            <NameDialog
-                open={editModel}
-                onOpenChange={setEditModel}
-                title="Change model"
-                label="Model"
-                initialValue={provider.model}
-                placeholder="e.g. gemini-3.5-flash"
-                onSubmit={saveModel}
+            <EditProviderDialog
+                open={editOpen}
+                onOpenChange={setEditOpen}
+                initialName={provider.name}
+                initialModel={provider.model}
+                onSubmit={saveProvider}
             />
 
             <ConfirmDialog
